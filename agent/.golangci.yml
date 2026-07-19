@@ -6,17 +6,30 @@ run:
   allow-parallel-runners: true
 
 issues:
-  # don't skip warning about doc comments
-  # don't exclude the default set of lint
-  exclude-use-default: false
   exclude-rules:
-    - path: "api/*"
-      linters:
-        - lll
-    - path: "internal/*"
+    # Node-agent internals: relax style/complexity linters on the faithfully
+    # migrated CRIU/CUDA/runtime code. Correctness linters stay enabled.
+    - path: "internal/"
       linters:
         - dupl
         - lll
+        - gocyclo
+        - prealloc
+        - unparam
+        - goconst
+    # CLI code carries long flag/usage/error strings.
+    - path: "cmd/"
+      linters:
+        - lll
+    # Table-driven tests legitimately repeat literals and run long.
+    - path: "_test\\.go"
+      linters:
+        - dupl
+        - goconst
+        - gocyclo
+        - prealloc
+        - unparam
+
 linters:
   disable-all: true
   enable:
