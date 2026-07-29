@@ -9,7 +9,9 @@ COPY api/ api/
 COPY operator/ operator/
 WORKDIR /workspace/operator
 RUN go build -o bin/manager ./cmd/manager
+RUN go build -o bin/crd-installer ./cmd/crdinstaller
 
 FROM gcr.io/distroless/static:nonroot
 COPY --from=builder /workspace/operator/bin/manager /manager
+COPY --from=builder /workspace/operator/bin/crd-installer /crd-installer
 ENTRYPOINT ["/manager"]

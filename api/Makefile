@@ -5,9 +5,14 @@ include $(REPO_HACK_DIR)/tools.mk
 
 .PHONY: generate fmt lint tidy test
 
+# Mirrored, not generated separately, so Helm can install CRDs on a fresh release.
+CHART_CRD_DIR := ../charts/snapshot/crds
+
 generate: $(CONTROLLER_GEN)
 	$(CONTROLLER_GEN) object:headerFile=../hack/boilerplate.go.txt paths=./...
-	$(CONTROLLER_GEN) crd paths=./... output:crd:artifacts:config=../charts/snapshot/crds
+	$(CONTROLLER_GEN) crd paths=./... output:crd:artifacts:config=./v1alpha1/crds
+	rm -f $(CHART_CRD_DIR)/*.yaml
+	cp v1alpha1/crds/*.yaml $(CHART_CRD_DIR)/
 
 fmt:
 	gofmt -w .

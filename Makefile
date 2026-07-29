@@ -12,8 +12,11 @@ VERSION           ?= latest
 TAGS              ?= $(VERSION)
 DOCKER_BUILD_ARGS ?=
 
-.PHONY: tidy generate test build lint verify-generate check fmt add-license-headers \
+.PHONY: tidy generate test build lint verify-generate verify-crds check fmt add-license-headers \
         verify-license-headers govulncheck helm-lint docker-build-agent docker-build-operator
+
+CRD_SRC_DIR   := api/v1alpha1/crds
+CHART_CRD_DIR := charts/snapshot/crds
 
 tidy:
 	$(MAKE) -C api tidy
@@ -42,24 +45,29 @@ fmt:
 	$(MAKE) -C agent fmt
 	$(MAKE) -C operator fmt
 
+# A license header on controller-gen output would be stripped by the next generate.
+LICENSE_IGNORES := -ignore '**/zz_generated*.go' -ignore '**/.gitkeep' \
+                   -ignore 'charts/**' -ignore 'api/v1alpha1/crds/**'
+
 add-license-headers: $(ADDLICENSE)
-	$(ADDLICENSE) -f hack/boilerplate.addlicense.txt \
-	  -ignore '**/zz_generated*.go' -ignore '**/.gitkeep' -ignore 'charts/**' \
-	  . .github/workflows
+	$(ADDLICENSE) -f hack/boilerplate.addlicense.txt $(LICENSE_IGNORES) . .github/workflows
 
 verify-license-headers: $(ADDLICENSE)
-	$(ADDLICENSE) -f hack/boilerplate.addlicense.txt -check \
-	  -ignore '**/zz_generated*.go' -ignore '**/.gitkeep' -ignore 'charts/**' \
-	  . .github/workflows
+	$(ADDLICENSE) -f hack/boilerplate.addlicense.txt -check $(LICENSE_IGNORES) . .github/workflows
+
+# Ordered before generate: afterwards it would compare freshly repaired copies.
+verify-crds:
+	@diff -r -x '*.go' $(CRD_SRC_DIR) $(CHART_CRD_DIR) || \
+	  (echo "ERROR: $(CHART_CRD_DIR) has drifted from $(CRD_SRC_DIR) — run 'make generate' and commit"; exit 1)
 
 # install-tools makes controller-gen/golangci-lint/addlicense/helm available to
 # the stages before they run. govulncheck + helm-lint are read-only, so they run
 # after the mutating stages and before the clean-tree assert.
-check: install-tools generate add-license-headers fmt tidy verify-license-headers lint govulncheck helm-lint
+check: verify-crds install-tools generate add-license-headers fmt tidy verify-license-headers lint govulncheck helm-lint
 	@test -z "$$(git status --porcelain)" || \
 	  (echo "ERROR: tree dirty after check — commit the changes below"; git status --porcelain; git diff; exit 1)
 
-verify-generate: generate
+verify-generate: verify-crds generate
 	@test -z "$$(git status --porcelain)" || \
 	  (echo "ERROR: generated files out of date — run 'make generate' and commit"; git status --porcelain; git diff; exit 1)
 
