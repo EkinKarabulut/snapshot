@@ -13,10 +13,13 @@ TAGS              ?= $(VERSION)
 DOCKER_BUILD_ARGS ?=
 
 .PHONY: tidy generate test build lint verify-generate verify-crds check fmt add-license-headers \
-        verify-license-headers govulncheck helm-lint docker-build-agent docker-build-operator
+        verify-license-headers govulncheck helm-lint docker-build-agent docker-build-operator \
+        linux-build linux-test
 
 CRD_SRC_DIR   := api/v1alpha1/crds
 CHART_CRD_DIR := charts/snapshot/crds
+
+LINUX_GO_IMAGE ?= golang:$(GO_VERSION)
 
 tidy:
 	$(MAKE) -C api tidy
@@ -78,8 +81,26 @@ govulncheck: $(GOVULNCHECK)
 helm-lint: $(HELM)
 	$(HELM) lint charts/snapshot/
 
+# Run build/test inside a Linux container (local dev only; CI runs on Linux natively).
+linux-build:
+	docker run --rm \
+	  --user "$$(id -u):$$(id -g)" \
+	  -e HOME=/tmp -e GOCACHE=/tmp/go-build \
+	  -v "$(CURDIR):/workspace" -w /workspace \
+	  $(LINUX_GO_IMAGE) \
+	  make -C agent build
+
+linux-test:
+	docker run --rm \
+	  --user "$$(id -u):$$(id -g)" \
+	  -e HOME=/tmp -e GOCACHE=/tmp/go-build \
+	  -v "$(CURDIR):/workspace" -w /workspace \
+	  $(LINUX_GO_IMAGE) \
+	  make -C agent test
+
 docker-build-agent:
 	docker buildx build $(DOCKER_BUILD_ARGS) -f agent/Dockerfile \
+	  --build-arg GO_VERSION=$(GO_VERSION) \
 	  --build-context=api=./api --target agent \
 	  $(foreach t,$(TAGS),-t $(REGISTRY)/agent:$(t)) agent/
 
