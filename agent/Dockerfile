@@ -3,10 +3,14 @@
 #
 # Unified Dockerfile for snapshot-agent and placeholder images.
 #
-# Build targets (the `api` build context is required — the agent module depends on the
-# api module via `replace => ../api`):
-#   docker build --platform linux/amd64 --target agent --build-context api=../api -t snapshot-agent:latest .
-#   docker build --platform linux/amd64 --target placeholder --build-context api=../api --build-arg BASE_IMAGE=<app-image> -t placeholder:latest .
+# Build targets. Two named build contexts are required for the agent: `api`
+# (the agent module depends on it via `replace => ../api`) and `compliance`
+# (attribution helpers shared with the operator image):
+#   docker build --platform linux/amd64 --target agent \
+#     --build-context api=../api --build-context compliance=../hack/compliance \
+#     -t snapshot-agent:latest .
+#   docker build --platform linux/amd64 --target placeholder --build-context api=../api \
+#     --build-arg BASE_IMAGE=<app-image> -t placeholder:latest .
 #
 # Optional targets for CI:
 #   docker build --target linter --build-context api=../api .   # Run linting
@@ -23,7 +27,7 @@ ARG GO_VERSION=1.26.5
 #   --build-arg CRIU_REF=<fork-branch-or-sha>
 ARG CRIU_REPO=https://github.com/checkpoint-restore/criu.git
 ARG CRIU_REF=criu-dev
-ARG AGENT_BASE_IMAGE=nvcr.io/nvidia/cuda-dl-base:25.11-cuda13.0-devel-ubuntu24.04
+ARG AGENT_BASE_IMAGE=nvcr.io/nvidia/cuda-dl-base:25.11-cuda13.0-devel-ubuntu24.04@sha256:8315e2455736c4f9b597f15c5fb4d31f834e798e0c6b66bbdbdbac491ce26bd1
 
 # For placeholder target only - this default allows agent builds to succeed,
 # but placeholder builds MUST override it with --build-arg BASE_IMAGE=<image>
@@ -79,6 +83,9 @@ ARG TARGETARCH=amd64
 
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -ldflags="-w -s" -o /snapshot-agent ./cmd/agent
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -ldflags="-w -s" -o /nsrestore ./cmd/nsrestore
+
+# Corresponding source for the Go modules compiled into the binaries above.
+RUN mkdir -p /go-src && go mod vendor -o /go-src/vendor
 
 # =============================================================================
 # Stage: CUDA checkpoint helper builder
@@ -145,10 +152,16 @@ RUN mkdir -p /criu-install/usr/local/lib/snapshot/criu-plugins \
 
 RUN git clone https://github.com/NVIDIA/cuda-checkpoint.git /tmp/cuda-checkpoint
 
+# CRIU source at the exact ref built from: this is a from-source build, and
+# CRIU_REF may be a moving branch.
+RUN tar -czf /criu-src.tar.gz -C /tmp --exclude-vcs criu
+
 # =============================================================================
-# Stage: Agent - Final snapshot-agent image
+# Stage: Runtime deps - CRIU runtime packages
+#
+# Shared by the agent and sources stages so both see the same package set.
 # =============================================================================
-FROM ${AGENT_BASE_IMAGE} AS agent
+FROM ${AGENT_BASE_IMAGE} AS runtime-deps
 
 ARG TARGETARCH=amd64
 
@@ -175,6 +188,30 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     util-linux \
     && rm -rf /var/lib/apt/lists/*
 
+# =============================================================================
+# Stage: Sources - corresponding source for everything added over the base
+# =============================================================================
+FROM runtime-deps AS sources
+
+COPY compliance/base-packages.tsv /tmp/base-packages.tsv
+COPY compliance/collect-sources.sh /tmp/collect-sources.sh
+
+# Debian/Ubuntu source for the delta against the NGC base image.
+RUN sh /tmp/collect-sources.sh /tmp/base-packages.tsv /sources/dpkg
+
+# CRIU source, at the exact ref this image was built from.
+COPY --from=criu-builder /criu-src.tar.gz /sources/criu/criu-src.tar.gz
+
+# Go module source for the statically linked binaries.
+COPY --from=builder /go-src/vendor /sources/go/vendor
+
+COPY compliance/README.source.txt /sources/README.txt
+
+# =============================================================================
+# Stage: Agent - Final snapshot-agent image
+# =============================================================================
+FROM runtime-deps AS agent
+
 # Copy CRIU from builder
 COPY --from=criu-builder /criu-install/usr/local /usr/local
 COPY --from=criu-builder /tmp/criu/COPYING /legal/CRIU/COPYING
@@ -189,6 +226,15 @@ RUN chmod +x /usr/local/sbin/cuda-checkpoint /usr/local/bin/cuda-checkpoint-help
 # Copy the built binaries
 COPY --from=builder /snapshot-agent /usr/local/bin/snapshot-agent
 COPY --from=builder /nsrestore /usr/local/bin/nsrestore
+
+COPY --from=sources /sources /legal/source
+
+# Attribution generated from the delta manifest and the vendored modules.
+COPY compliance/gen-attribution.sh /tmp/gen-attribution.sh
+COPY --from=compliance go-licenses.sh /tmp/go-licenses.sh
+RUN sh /tmp/gen-attribution.sh /legal/source/dpkg/DELTA.tsv /legal/source/go/vendor \
+      /legal/THIRD-PARTY.txt /legal/source/dpkg/SKIPPED.txt /tmp/go-licenses.sh \
+    && rm -f /tmp/gen-attribution.sh
 
 # Create directories
 RUN mkdir -p /checkpoints /var/run/snapshot
