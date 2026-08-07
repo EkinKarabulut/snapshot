@@ -87,6 +87,12 @@ Clients interact exclusively through the Kubernetes API. No platform-specific AP
 
 &nbsp;
 
+## Benchmarks
+
+Restore timings across a range of model sizes, broken down by stage, are documented in [docs/benchmarks.md](docs/benchmarks.md).
+
+&nbsp;
+
 ## Status
 
 The project is in early development. API types and control plane components are scaffolded but not yet feature-complete. Not ready for production use.
