@@ -1,0 +1,200 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+name: E2E Tests
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 23:00 Pacific Standard Time.
+    - cron: "0 7 * * *"
+
+concurrency:
+  group: snapshot-e2e-vcluster-${{ github.run_id }}-${{ github.run_attempt }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  e2e:
+    name: Run Snapshot e2e tests in vCluster
+    runs-on: prod-deploy-tester-v1
+    timeout-minutes: 60
+    env:
+      HOST_NAMESPACE: snapshot-e2e-${{ github.run_id }}-${{ github.run_attempt }}
+      VCLUSTER_NAME: snapshot-e2e-${{ github.run_id }}-${{ github.run_attempt }}
+      TEST_NAMESPACE: snapshot-e2e
+      SNAPSHOT_E2E_HOST_NAMESPACE: snapshot-e2e-${{ github.run_id }}-${{ github.run_attempt }}
+      SNAPSHOT_E2E_VCLUSTER_NAME: snapshot-e2e-${{ github.run_id }}-${{ github.run_attempt }}
+      SNAPSHOT_E2E_TEST_NAMESPACE: snapshot-e2e
+      SNAPSHOT_E2E_TARGET_KUBECONFIG: ${{ github.workspace }}/.kubeconfig-snapshot-e2e
+      SNAPSHOT_E2E_SNAPSHOT_RELEASE: snapshot
+      SNAPSHOT_E2E_PVC_NAME: snapshot-pvc
+      SNAPSHOT_E2E_PVC_SIZE: 2Gi
+      SNAPSHOT_E2E_MODE: vcluster
+      SNAPSHOT_E2E_VCLUSTER_K8S_VERSION: v1.32.13
+      SNAPSHOT_E2E_VCLUSTER_LOCAL_PORT: "8443"
+      SNAPSHOT_E2E_HELM_TIMEOUT: 6m
+      SNAPSHOT_E2E_READY_TIMEOUT_SECONDS: "480"
+      SNAPSHOT_E2E_RESULT_FILE: ${{ github.workspace }}/.snapshot-e2e-setup-result.json
+      PYTHONUNBUFFERED: "1"
+      UV_LINK_MODE: copy
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Capture host kubeconfig
+        id: host
+        run: |
+          echo "kubeconfig=${KUBECONFIG:-}" >> "${GITHUB_OUTPUT}"
+
+      - name: Install vCluster CLI
+        timeout-minutes: 3
+        uses: ./.github/actions/install-vcluster-cli
+
+      - name: Cleanup stale e2e namespaces
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+
+          cutoff_epoch="$(date -u -d '12 hours ago' +%s)"
+          kubectl get ns -l snapshot-e2e=true \
+            -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.metadata.creationTimestamp}{"\n"}{end}' |
+          while IFS=$'\t' read -r namespace created_at; do
+            if [[ -z "${namespace}" ]]; then
+              continue
+            fi
+            if [[ "${namespace}" == "${HOST_NAMESPACE}" ]]; then
+              echo "Keeping current namespace ${namespace}"
+              continue
+            fi
+
+            created_epoch="$(date -u -d "${created_at}" +%s)"
+            if (( created_epoch >= cutoff_epoch )); then
+              echo "Keeping recent namespace ${namespace} created at ${created_at}"
+              continue
+            fi
+
+            echo "Deleting stale Snapshot e2e namespace ${namespace} created at ${created_at}"
+            helm uninstall vcluster-hpm -n "${namespace}" || true
+            vcluster delete "${namespace}" --namespace "${namespace}" || true
+            kubectl delete namespace "${namespace}" --ignore-not-found --wait=false || true
+          done
+
+      - name: Validate runner architecture
+        if: ${{ runner.arch != 'X64' }}
+        timeout-minutes: 1
+        run: |
+          echo "Snapshot e2e currently supports only X64 runners; got ${{ runner.arch }}" >&2
+          exit 1
+
+      - name: Install Python tooling
+        timeout-minutes: 3
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.10.11"
+          checksum: "5a360b0de092ddf4131f5313d0411b48c4e95e8107e40c3f8f2e9fcb636b3583"
+          enable-cache: "false"
+          download-from-astral-mirror: "false"
+
+      - name: Validate Python tooling
+        timeout-minutes: 1
+        run: |
+          set -euo pipefail
+          uv --version
+
+      - name: Resolve Snapshot image tag
+        timeout-minutes: 3
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 hack/resolve-snapshot-image-tag.py
+
+      - name: Validate host GPU cluster
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          uv run --locked --project e2e python -m snapshot_e2e.infra.setup \
+            --phase host-preflight
+
+      - name: Create vCluster target
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          uv run --locked --project e2e python -m snapshot_e2e.infra.setup \
+            --phase vcluster
+
+      - name: Install Snapshot in vCluster
+        timeout-minutes: 8
+        run: |
+          set -euo pipefail
+          uv run --locked --project e2e python -m snapshot_e2e.infra.setup \
+            --phase snapshot-install
+
+      - name: Wait for Snapshot components
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          uv run --locked --project e2e python -m snapshot_e2e.infra.setup \
+            --phase snapshot-ready
+
+      - name: Export vCluster kubeconfig
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          uv run --locked --project e2e python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          result = json.loads(Path(os.environ["SNAPSHOT_E2E_RESULT_FILE"]).read_text())
+
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
+              env.write(f"KUBECONFIG={result['target_kubeconfig']}\n")
+              env.write(f"SNAPSHOT_E2E_HOST_NAMESPACE={result.get('host_namespace', '')}\n")
+              env.write(f"SNAPSHOT_E2E_VCLUSTER_NAME={result.get('vcluster_name', '')}\n")
+              env.write(f"SNAPSHOT_E2E_TEST_NAMESPACE={result['test_namespace']}\n")
+              env.write(f"SNAPSHOT_E2E_TARGET_KUBECONFIG={result['target_kubeconfig']}\n")
+              env.write(f"SNAPSHOT_E2E_SNAPSHOT_RELEASE={result['snapshot_release']}\n")
+              env.write(f"SNAPSHOT_E2E_PVC_NAME={result['pvc_name']}\n")
+
+          print(f"Target kubeconfig: {result['target_kubeconfig']}")
+          PY
+
+      - name: Inspect vCluster target
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          kubectl get nodes -o wide
+          kubectl get runtimeclass
+          kubectl get pods -n "${TEST_NAMESPACE}" -o wide
+          kubectl get pvc -n "${TEST_NAMESPACE}" -o wide
+
+      - name: Run environment validation
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          uv run --locked --project e2e pytest e2e/tests -m environment -vv
+
+      - name: Run snapshot lifecycle tests
+        timeout-minutes: 35
+        run: |
+          set -euo pipefail
+          uv run --locked --project e2e pytest e2e/tests/test_snapshot_lifecycle.py -vv -s
+
+      - name: Cleanup e2e vCluster
+        if: ${{ always() }}
+        env:
+          KUBECONFIG: ${{ steps.host.outputs.kubeconfig }}
+        run: |
+          set +e
+          helm uninstall vcluster-hpm -n "${HOST_NAMESPACE}"
+          if command -v vcluster >/dev/null 2>&1; then
+            vcluster delete "${VCLUSTER_NAME}" --namespace "${HOST_NAMESPACE}"
+          fi
+          kubectl delete namespace "${HOST_NAMESPACE}" --ignore-not-found --wait=false
