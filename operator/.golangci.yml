@@ -34,6 +34,15 @@ issues:
     - linters:
         - staticcheck
       text: "SA1019:.*GetEventRecorderFor.*deprecated"
+    # LegacySnapshotControlDirEnv is deprecated for new callers, but
+    # EnsureControlVolume must keep injecting it during the migration window
+    # so existing workload images that read the old name keep working.
+    # Scoped to this file (and its test) so any other future reference stays
+    # flagged.
+    - path: "internal/protocol/control_volume(_test)?\\.go"
+      linters:
+        - staticcheck
+      text: "SA1019:.*LegacySnapshotControlDirEnv.*deprecated"
 
 linters:
   disable-all: true

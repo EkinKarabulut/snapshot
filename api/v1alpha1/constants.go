@@ -75,9 +75,19 @@ const (
 	// the workload container.
 	SnapshotControlMountPath = "/snapshot-control"
 
-	// SnapshotControlDirEnv is the environment variable exposing the control
-	// mount path to the workload.
-	SnapshotControlDirEnv = "DYN_SNAPSHOT_CONTROL_DIR"
+	// SnapshotControlDirEnv is the canonical environment variable exposing the
+	// control mount path to the workload.
+	SnapshotControlDirEnv = "SNAPSHOT_CONTROL_DIR"
+
+	// LegacySnapshotControlDirEnv is the environment variable exposing the
+	// control mount path to the workload. EnsureControlVolume injects both
+	// during the migration window so existing workload images (which read
+	// this name) keep working while new images can move to
+	// SnapshotControlDirEnv.
+	//
+	// Deprecated: use SnapshotControlDirEnv instead. Remove once no workload
+	// image depends on this name.
+	LegacySnapshotControlDirEnv = "DYN_SNAPSHOT_CONTROL_DIR"
 
 	// SnapshotCompleteFile is written by the snapshot agent inside the
 	// control volume when a checkpoint has completed successfully.
