@@ -17,6 +17,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/yaml"
 
 	"github.com/ai-dynamo/snapshot/api/v1alpha1/crds"
 )
@@ -183,16 +184,36 @@ func TestEmbeddedCRDsApplyCleanly(t *testing.T) {
 	manifests := crds.All()
 	require.NotEmpty(t, manifests)
 
+	// Derive expected names by parsing each manifest directly — independent of
+	// InstallCRDs, so a bug that mislabels every applied CRD the same way
+	// couldn't slip past this test.
+	wantNames := make([]string, 0, len(manifests))
+	for _, manifest := range manifests {
+		obj := &unstructured.Unstructured{}
+		require.NoError(t, yaml.Unmarshal([]byte(manifest), &obj.Object))
+		name := obj.GetName()
+		require.NotEmpty(t, name, "manifest has no metadata.name: %s", manifest)
+		wantNames = append(wantNames, name)
+	}
+
 	cl := newFakeClient()
 	results, err := InstallCRDs(t.Context(), cl, logr.Discard(), manifests)
 
 	require.NoError(t, err)
-	assert.ElementsMatch(t,
-		[]string{"podsnapshots.nvidia.com", "podsnapshotcontents.nvidia.com"},
-		cl.applied)
+	require.Len(t, results, len(manifests), "expected one result per embedded CRD manifest")
+
+	gotNames := make([]string, 0, len(results))
 	for _, res := range results {
 		assert.Equal(t, ActionCreated, res.Action)
+		gotNames = append(gotNames, res.Name)
 	}
+	// InstallCRDs processes manifests in order and fakeClient.Apply records
+	// calls in the order they happen, so ordered equality is both correct and
+	// strictly stronger than ElementsMatch — it also catches a manifest being
+	// applied under the wrong name (e.g. an index mix-up), which membership
+	// alone would miss.
+	assert.Equal(t, wantNames, gotNames)
+	assert.Equal(t, wantNames, cl.applied)
 }
 
 var _ Client = (*fakeClient)(nil)
