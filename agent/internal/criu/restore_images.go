@@ -24,6 +24,7 @@ import (
 
 const (
 	filesImageFilename            = "files.img"
+	restoreImagesTempDirPattern   = "criu-restore-images-*"
 	placeholderMountNamespacePath = "/proc/self/ns/mnt"
 	cudaUVMFDSocketNamePrefix     = "\x00cuda-uvmfd-"
 	linuxUnixSocketStateListen    = 10
@@ -38,16 +39,16 @@ type tcpPortRewrite struct {
 	port   uint32
 }
 
-func prepareRestoreImageDir(checkpointPath string) (string, func(), error) {
+func prepareRestoreImageDir(checkpointPath, scratchDir string) (string, func(), error) {
 	// The placeholder mount namespace remains container-specific with shareProcessNamespace.
 	var stat unix.Stat_t
 	if err := unix.Stat(placeholderMountNamespacePath, &stat); err != nil {
 		return "", nil, fmt.Errorf("failed to stat placeholder mount namespace at %s: %w", placeholderMountNamespacePath, err)
 	}
-	return prepareRestoreImageDirForRestoreID(checkpointPath, stat.Ino)
+	return prepareRestoreImageDirForRestoreID(checkpointPath, stat.Ino, scratchDir)
 }
 
-func prepareRestoreImageDirForRestoreID(checkpointPath string, restoreID uint64) (string, func(), error) {
+func prepareRestoreImageDirForRestoreID(checkpointPath string, restoreID uint64, scratchDir string) (string, func(), error) {
 	checkpointPath, err := filepath.Abs(checkpointPath)
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to resolve checkpoint path: %w", err)
@@ -113,7 +114,15 @@ func prepareRestoreImageDirForRestoreID(checkpointPath string, restoreID uint64)
 		return checkpointPath, func() {}, nil
 	}
 
-	privateDir, err := os.MkdirTemp(filepath.Dir(checkpointPath), ".dynamo-criu-restore-*")
+	// Keep the private view on local scratch (CRIU workDir, or a criu-restore-*
+	// temp when workDir is unset). Hard-linking thousands of *.img names onto
+	// the checkpoint PVC is one NFS RPC per link and again per unlink in
+	// cleanup(); the page inodes stay in the original checkpoint.
+	if scratchDir == "" {
+		closeFDs(reservationFDs)
+		return "", nil, fmt.Errorf("CRIU restore scratch directory is empty")
+	}
+	privateDir, err := os.MkdirTemp(scratchDir, restoreImagesTempDirPattern)
 	if err != nil {
 		closeFDs(reservationFDs)
 		return "", nil, fmt.Errorf("failed to create private CRIU image directory: %w", err)
@@ -139,10 +148,12 @@ func prepareRestoreImageDirForRestoreID(checkpointPath string, restoreID uint64)
 		if name == filesImageFilename || !strings.HasSuffix(name, ".img") {
 			continue
 		}
-		// CRIU does not modify restore images; hard links keep them visible after it
-		// enters the restored mount namespace without copying large page images.
-		if err := os.Link(filepath.Join(checkpointPath, name), filepath.Join(privateDir, name)); err != nil {
-			return fail(fmt.Errorf("failed to hard-link CRIU image %s: %w", name, err))
+		// CRIU does not modify restore images. Absolute symlinks let it open
+		// the original page files via the images-dir FD without copying them
+		// and without creating NFS directory entries for the private view.
+		target := filepath.Join(checkpointPath, name)
+		if err := os.Symlink(target, filepath.Join(privateDir, name)); err != nil {
+			return fail(fmt.Errorf("failed to symlink CRIU image %s: %w", name, err))
 		}
 	}
 
