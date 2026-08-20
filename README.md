@@ -74,10 +74,7 @@ Before installing Snapshot, make sure you have:
 - [NVIDIA GPU Operator](https://github.com/NVIDIA/gpu-operator) 26.3 or newer, with CUDA driver 580 or newer and MIG disabled
 - A `ReadWriteMany` (RWX) storage class
 - The [Helm](https://helm.sh/docs/intro/install) CLI
-
-Snapshot's node agent runs as a privileged DaemonSet (`hostPID`, `hostIPC`,
-`hostNetwork`) so it can perform CRIU and `cuda-checkpoint`. Your workloads stay
-unprivileged — only the agent's namespace needs to permit privileged pods.
+- A cluster that permits privileged pods for the node agent — see [Security](docs/operations/security.md)
 
 <!-- TODO(eng): open items for the team to validate (feed Support matrix / Limitations):
      - minimum Kubernetes version (any non-EOL release, or a specific floor?)
@@ -110,9 +107,10 @@ helm install snapshot oci://ghcr.io/ai-dynamo/snapshot/snapshot \
   --namespace snapshot --create-namespace
 ```
 
-By default the chart provisions its own RWX checkpoint volume; point it at an
-existing claim with `--set storage.pvc.create=false --set storage.pvc.name=<claim>`.
-See [Installation](docs/operations/install.md) for storage, RBAC, runtime, and uninstall options.
+By default the chart provisions its own RWX checkpoint volume, shared by every
+snapshot. See [Storage](docs/operations/storage.md) for the model and options
+(including reusing an existing claim), and [Installation](docs/operations/install.md)
+for RBAC, runtime, and uninstall.
 
 ### From source
 
@@ -171,7 +169,8 @@ Multi-GPU and Arm support are on the roadmap.
 
 **Operations**
 
-- [Installation](docs/operations/install.md) — Helm install, storage (RWX PVC), RBAC, runtime, and uninstall.
+- [Installation](docs/operations/install.md) — Helm install, RBAC, runtime, and uninstall.
+- [Storage](docs/operations/storage.md) — the shared checkpoint volume and how to configure it.
 - [Troubleshooting](docs/operations/troubleshooting.md) — common failures and where to look.
 - [Security](docs/operations/security.md) — the privileged agent, seccomp, and Pod Security.
 
