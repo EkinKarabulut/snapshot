@@ -146,9 +146,9 @@ to capture and restore your first pod.
 
 Current limitations:
 
-- Single GPU only.
+- Single-GPU workloads only.
 - x86_64 nodes only.
-- No vGPUs — physical NVIDIA GPUs only.
+- vGPU is not supported.
 - Runs only on NVIDIA GPUs supported by the required CUDA driver — see the [Support matrix](docs/reference/support-matrix.md).
 
 Multi-GPU and Arm support are on the roadmap.
