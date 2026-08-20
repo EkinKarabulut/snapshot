@@ -9,14 +9,9 @@ Snapshot provides the checkpoint and restore primitives for GPU pods.
 Higher-level decisions — which pods to snapshot, when, and how to handle
 failures — are left to the systems that integrate it.
 
-> [!WARNING]
-> Snapshot is in **alpha** and under active development. APIs and behavior may
-> change, and it is not yet ready for production use. See
-> [Limitations & known issues](docs/limitations.md).
-
-> [!TIP]
-> Want to try it? The **[Quickstart](docs/quickstart.md)** walks through
-> capturing a live GPU pod and restoring it into a fresh one.
+> [!NOTE]
+> Snapshot's APIs may still change, so it is not yet recommended for
+> production-critical workloads.
 
 ## The Problem
 
@@ -151,7 +146,7 @@ to capture and restore your first pod.
 
 ## Limitations
 
-Current limitations of the alpha:
+Current limitations:
 
 - Single GPU only.
 - x86_64 nodes only.
@@ -206,12 +201,9 @@ Contributions are welcome under the project's [Apache 2.0 license](LICENSE). See
 
 To report a security vulnerability, follow the process in [SECURITY.md](SECURITY.md).
 
-## Status
+## Feedback
 
-Snapshot is in early development (pre-1.0). The API types and control-plane
-components are in place but not yet feature-complete, and the project is not ready
-for production use. Expect breaking changes during alpha. Feedback and issues are
-welcome — please [open an issue](https://github.com/ai-dynamo/snapshot/issues).
+Feedback and issues are welcome — please [open an issue](https://github.com/ai-dynamo/snapshot/issues).
 
 ## License
 
