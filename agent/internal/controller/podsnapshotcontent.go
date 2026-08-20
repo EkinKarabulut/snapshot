@@ -17,8 +17,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
+	contentvalidation "k8s.io/apimachinery/pkg/api/validate/content"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -150,9 +150,10 @@ func (w *NodeController) reconcileSourcePod(ctx context.Context, pod *corev1.Pod
 		return w.setSnapshotContentFailed(ctx, content, "MissingCheckpointID",
 			fmt.Errorf("source pod %q missing %s label", pod.Name, snapshotv1alpha1.CheckpointIDLabel))
 	}
-	if errs := validation.IsDNS1123Label(id); len(errs) > 0 {
+	// Label-value rules, not the stricter DNS-1123-label rules: dots are valid here.
+	if errs := contentvalidation.IsLabelValue(id); len(errs) > 0 {
 		return w.setSnapshotContentFailed(ctx, content, "InvalidCheckpointID",
-			fmt.Errorf("checkpoint ID %q is not a valid DNS-1123 label: %s", id, strings.Join(errs, "; ")))
+			fmt.Errorf("checkpoint ID %q is not a valid label value: %s", id, strings.Join(errs, "; ")))
 	}
 
 	// The checkpoint ID is the artifact identity, so the in-flight guard and lease key on it:
