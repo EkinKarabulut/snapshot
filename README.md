@@ -78,7 +78,7 @@ Before installing Snapshot, make sure you have:
 - containerd or CRI-O as the container runtime
 - [NVIDIA GPU Operator](https://github.com/NVIDIA/gpu-operator) 26.3 or newer, with CUDA driver 580 or newer and MIG disabled
 - A `ReadWriteMany` (RWX) storage class
-- The [Helm 4](https://helm.sh/docs/intro/install) CLI
+- The [Helm](https://helm.sh/docs/intro/install) CLI
 
 Snapshot's node agent runs as a privileged DaemonSet (`hostPID`, `hostIPC`,
 `hostNetwork`) so it can perform CRIU and `cuda-checkpoint`. Your workloads stay
@@ -99,9 +99,15 @@ Snapshot installs as a single per-cluster Helm release — a control-plane opera
 plus a privileged node agent (DaemonSet) on GPU nodes. Install it in its own
 namespace, and run your GPU workloads in separate namespaces.
 
-**From a release (recommended).** Find the latest version on the
-[releases page](https://github.com/ai-dynamo/snapshot/releases), then install the
-published chart, replacing `<VERSION>`:
+You can install Snapshot:
+
+- **From a release** (recommended)
+- **From source** (build it yourself)
+
+### From a release
+
+Find the latest version on the [releases page](https://github.com/ai-dynamo/snapshot/releases),
+then install the published chart, replacing `<VERSION>`:
 
 ```bash
 helm install snapshot oci://ghcr.io/ai-dynamo/snapshot/snapshot \
@@ -109,17 +115,13 @@ helm install snapshot oci://ghcr.io/ai-dynamo/snapshot/snapshot \
   --namespace snapshot --create-namespace
 ```
 
-**From source.** Clone the repository and install the chart directly — useful for
-trying unreleased changes:
-
-```bash
-helm install snapshot ./charts/snapshot \
-  --namespace snapshot --create-namespace
-```
-
 By default the chart provisions its own RWX checkpoint volume; point it at an
 existing claim with `--set storage.pvc.create=false --set storage.pvc.name=<claim>`.
 See [Installation](docs/install.md) for storage, RBAC, runtime, and uninstall options.
+
+### From source
+
+Follow the instructions in [Building from source](docs/build-from-source.md).
 
 <!-- TODO(eng): confirm the install namespace convention and that oci://ghcr.io/ai-dynamo/snapshot/snapshot at <VERSION> matches the first published alpha release; note whether a from-source install needs image tags before appVersion images are published. -->
 
@@ -149,24 +151,26 @@ to capture and restore your first pod.
 
 ## Limitations
 
-Snapshot is in alpha with a deliberately narrow surface today:
+Current limitations of the alpha:
 
-- **Single GPU only** — multi-GPU workers are not yet supported.
-- **x86_64 only** — Arm nodes such as GB200 are not yet supported; Arm support is planned.
-- **No vGPUs** — only physical NVIDIA GPUs are supported.
-- **NVIDIA GPUs matching the required CUDA driver** — see the [Support matrix](docs/support-matrix.md) for supported GPUs, drivers, and backends.
+- Single GPU only.
+- x86_64 nodes only.
+- No vGPUs — physical NVIDIA GPUs only.
+- Runs only on NVIDIA GPUs supported by the required CUDA driver — see the [Support matrix](docs/support-matrix.md).
 
-See [Limitations & known issues](docs/limitations.md) for the full, current list.
+Multi-GPU and Arm support are on the roadmap.
 
 ## Documentation
 
 | Guide | What it covers |
 |-------|----------------|
 | [Quickstart](docs/quickstart/README.md) | Install Snapshot and capture/restore a live GPU pod end to end. |
+| [Usage guides](docs/guides/README.md) | Build a snapshot-ready image per server, then checkpoint and restore. |
 | [Installation](docs/install.md) | Helm install, storage (RWX PVC), RBAC, runtime configuration, and uninstall. |
 | [Support matrix](docs/support-matrix.md) | Supported drivers, GPUs, runtimes, Kubernetes versions, and portability rules. |
 | [API reference](docs/api-reference.md) | `PodSnapshot`, `PodSnapshotContent`, `SnapshotJob`, the `restore-from` annotation, and the lifecycle. |
 | [Architecture](docs/architecture.md) | Operator and node-agent design, and the capture/restore internals. |
+| [Benchmarks](docs/benchmarks.md) | How startup performance is measured, and published results. |
 | [Limitations & known issues](docs/limitations.md) | Current limitations and known issues. |
 
 ## Adopters
