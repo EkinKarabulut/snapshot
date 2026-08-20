@@ -36,7 +36,7 @@ func ExecuteRestore(
 	checkpointPath string,
 	bundleDir string,
 	log logr.Logger,
-) (int32, func(), time.Duration, time.Duration, error) {
+) (int32, func() error, time.Duration, time.Duration, error) {
 	settings := m.CRIUDump.CRIU
 	var prepare, restore time.Duration
 
@@ -56,17 +56,23 @@ func ExecuteRestore(
 		removeScratch()
 		return 0, nil, prepare, 0, fmt.Errorf("failed to prepare CRIU image directory: %w", err)
 	}
-	cleanup := func() {
+	cleanup := func() error {
 		closeFiles(inheritedFiles)
 		closeFiles(openFiles)
-		removeImageDir()
+		cleanupErr := removeImageDir()
 		removeScratch()
+		return cleanupErr
+	}
+	cleanupAfterError := func() {
+		if err := cleanup(); err != nil {
+			log.Error(err, "failed to clean CRIU restore resources")
+		}
 	}
 
 	// Open image dir FD
 	imageDir, imageDirFD, err := openPathForCRIU(imageDirPath)
 	if err != nil {
-		cleanup()
+		cleanupAfterError()
 		return 0, nil, prepare, 0, fmt.Errorf("failed to open image directory: %w", err)
 	}
 	openFiles = append(openFiles, imageDir)
@@ -76,7 +82,7 @@ func ExecuteRestore(
 	if settings.WorkDir != "" {
 		workDirFile, workDirFD, err := openPathForCRIU(settings.WorkDir)
 		if err != nil {
-			cleanup()
+			cleanupAfterError()
 			return 0, nil, prepare, 0, fmt.Errorf("failed to open CRIU work directory: %w", err)
 		}
 		openFiles = append(openFiles, workDirFile)
@@ -85,14 +91,14 @@ func ExecuteRestore(
 
 	overridePath, err := rewriteCRIULibDir(criuOpts.ConfigFile, scratchDir, bundleDir)
 	if err != nil {
-		cleanup()
+		cleanupAfterError()
 		return 0, nil, prepare, 0, err
 	}
 	criuOpts.ConfigFile = proto.String(overridePath)
 
 	criuBin, err := bundledCRIUPath(bundleDir)
 	if err != nil {
-		cleanup()
+		cleanupAfterError()
 		return 0, nil, prepare, 0, err
 	}
 	c := criulib.MakeCriu()
@@ -100,7 +106,7 @@ func ExecuteRestore(
 
 	netNsFile, err := os.Open(netNsPath)
 	if err != nil {
-		cleanup()
+		cleanupAfterError()
 		return 0, nil, prepare, 0, fmt.Errorf("failed to open net NS at %s: %w", netNsPath, err)
 	}
 	openFiles = append(openFiles, netNsFile)
@@ -115,7 +121,7 @@ func ExecuteRestore(
 		restore = time.Since(restoreStart)
 		log.Error(err, "go-criu Restore returned error")
 		logging.LogRestoreErrors(imageDirPath, settings.WorkDir, log)
-		cleanup()
+		cleanupAfterError()
 		return 0, nil, prepare, restore, fmt.Errorf("CRIU restore failed: %w", err)
 	}
 	restore = time.Since(restoreStart)
