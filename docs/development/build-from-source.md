@@ -2,12 +2,12 @@
 
 This guide builds the Snapshot operator and node-agent images from a checkout of
 this repository and installs the chart against them. Most users should install
-[from a release](../README.md#from-a-release) instead — build from source when you
+[from a release](../../README.md#from-a-release) instead — build from source when you
 are developing Snapshot or testing unreleased changes.
 
 ## Prerequisites
 
-In addition to the [runtime prerequisites](../README.md#prerequisites), you need:
+In addition to the [runtime prerequisites](../../README.md#prerequisites), you need:
 
 - Go (matching the version pinned in the modules)
 - Docker with Buildx
@@ -65,7 +65,7 @@ helm install snapshot ./charts/snapshot \
   --set image.agent.tag=<your-tag>
 ```
 
-See [Installation](install.md) for storage, RBAC, runtime, and uninstall options.
+See [Installation](../operations/install.md) for storage, RBAC, runtime, and uninstall options.
 
 ## Development workflow
 
@@ -77,5 +77,5 @@ Common `make` targets from the repo root:
 - `make helm-lint` — lint the Helm chart
 - `make check` — the full pre-merge gate (generate, license headers, fmt, tidy, lint, and more)
 
-See [CONTRIBUTING.md](../CONTRIBUTING.md) for the contribution process and DCO
+See [CONTRIBUTING.md](../../CONTRIBUTING.md) for the contribution process and DCO
 sign-off.

@@ -15,7 +15,7 @@ failures — are left to the systems that integrate it.
 > [Limitations & known issues](docs/limitations.md).
 
 > [!TIP]
-> Want to try it? The **[Quickstart](docs/quickstart/README.md)** walks through
+> Want to try it? The **[Quickstart](docs/quickstart.md)** walks through
 > capturing a live GPU pod and restoring it into a fresh one.
 
 ## The Problem
@@ -117,11 +117,11 @@ helm install snapshot oci://ghcr.io/ai-dynamo/snapshot/snapshot \
 
 By default the chart provisions its own RWX checkpoint volume; point it at an
 existing claim with `--set storage.pvc.create=false --set storage.pvc.name=<claim>`.
-See [Installation](docs/install.md) for storage, RBAC, runtime, and uninstall options.
+See [Installation](docs/operations/install.md) for storage, RBAC, runtime, and uninstall options.
 
 ### From source
 
-Follow the instructions in [Building from source](docs/build-from-source.md).
+Follow the instructions in [Building from source](docs/development/build-from-source.md).
 
 <!-- TODO(eng): confirm the install namespace convention and that oci://ghcr.io/ai-dynamo/snapshot/snapshot at <VERSION> matches the first published alpha release; note whether a from-source install needs image tags before appVersion images are published. -->
 
@@ -140,11 +140,11 @@ primitives into their own control loop.
 | `nvidia.com/restore-from` | Namespaced | Pod annotation that triggers a restore from a named `PodSnapshot` in the same namespace. |
 
 Under the hood, a control-plane operator and a per-node agent perform the CRIU
-and `cuda-checkpoint` work; see [Architecture](docs/architecture.md) to dive in.
-The [API reference](docs/api-reference.md) has full field-level detail and the
+and `cuda-checkpoint` work; see [Architecture](docs/reference/architecture.md) to dive in.
+The [API reference](docs/reference/api.md) has full field-level detail and the
 capture/restore lifecycle.
 
-Once Snapshot is installed, follow the **[Quickstart](docs/quickstart/README.md)**
+Once Snapshot is installed, follow the **[Quickstart](docs/quickstart.md)**
 to capture and restore your first pod.
 
 <!-- TODO(eng): validate the SnapshotJob role wording — CRD added recently (#65). -->
@@ -156,22 +156,38 @@ Current limitations of the alpha:
 - Single GPU only.
 - x86_64 nodes only.
 - No vGPUs — physical NVIDIA GPUs only.
-- Runs only on NVIDIA GPUs supported by the required CUDA driver — see the [Support matrix](docs/support-matrix.md).
+- Runs only on NVIDIA GPUs supported by the required CUDA driver — see the [Support matrix](docs/reference/support-matrix.md).
 
 Multi-GPU and Arm support are on the roadmap.
 
 ## Documentation
 
-| Guide | What it covers |
-|-------|----------------|
-| [Quickstart](docs/quickstart/README.md) | Install Snapshot and capture/restore a live GPU pod end to end. |
-| [Usage guides](docs/guides/README.md) | Build a snapshot-ready image per server, then checkpoint and restore. |
-| [Installation](docs/install.md) | Helm install, storage (RWX PVC), RBAC, runtime configuration, and uninstall. |
-| [Support matrix](docs/support-matrix.md) | Supported drivers, GPUs, runtimes, Kubernetes versions, and portability rules. |
-| [API reference](docs/api-reference.md) | `PodSnapshot`, `PodSnapshotContent`, `SnapshotJob`, the `restore-from` annotation, and the lifecycle. |
-| [Architecture](docs/architecture.md) | Operator and node-agent design, and the capture/restore internals. |
-| [Benchmarks](docs/benchmarks.md) | How startup performance is measured, and published results. |
-| [Limitations & known issues](docs/limitations.md) | Current limitations and known issues. |
+**Get started**
+
+- [Quickstart](docs/quickstart.md) — install Snapshot and capture/restore a replica end to end.
+- [Usage guides](docs/guides/README.md) — build a snapshot-ready image per server, then checkpoint and restore.
+
+**Reference**
+
+- [API](docs/reference/api.md) — `PodSnapshot`, `PodSnapshotContent`, `SnapshotJob`, and the `restore-from` annotation.
+- [Architecture](docs/reference/architecture.md) — operator and node-agent design, and the capture/restore internals.
+- [Support matrix](docs/reference/support-matrix.md) — supported backends, GPUs, drivers, and Kubernetes versions.
+- [CLI (`snapshotctl`)](docs/reference/cli.md) — lower-level checkpoint/restore from a pod manifest.
+
+**Operations**
+
+- [Installation](docs/operations/install.md) — Helm install, storage (RWX PVC), RBAC, runtime, and uninstall.
+- [Troubleshooting](docs/operations/troubleshooting.md) — common failures and where to look.
+- [Security](docs/operations/security.md) — the privileged agent, seccomp, and Pod Security.
+
+**Development**
+
+- [Building from source](docs/development/build-from-source.md) — build the images and install locally.
+- [Benchmarks](docs/development/benchmarks.md) — how startup performance is measured.
+
+**More**
+
+- [Limitations & known issues](docs/limitations.md) — current limitations and what's on the roadmap.
 
 ## Adopters
 

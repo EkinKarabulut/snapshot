@@ -27,5 +27,5 @@ Using Snapshot is a two-step model:
 - [Checkpoint a replica](checkpoint.md)
 - [Restore a replica](restore.md)
 
-See [Installation](../install.md) for cluster prerequisites and the
-[API reference](../api-reference.md) for full resource detail.
+See [Installation](../operations/install.md) for cluster prerequisites and the
+[API reference](../reference/api.md) for full resource detail.

@@ -14,7 +14,7 @@ API as part of its control loop.
 
 ## Prerequisites
 
-- Snapshot is [installed](../install.md) in the cluster.
+- Snapshot is [installed](../operations/install.md) in the cluster.
 - The replica runs a [snapshot-ready image](README.md) and is fully initialized
   (weights loaded, kernels warmed up).
 
