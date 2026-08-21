@@ -125,6 +125,12 @@ func (w *NodeController) reconcileSourcePod(ctx context.Context, pod *corev1.Pod
 	if err != nil {
 		return fmt.Errorf("look up PodSnapshotContent by source pod %s/%s: %w", pod.Namespace, pod.Name, err)
 	}
+	// Ready content is terminal for chooseActiveContent so it cannot starve a new dump.
+	// Still retry snapshot-complete for Ready, non-Failed work orders: the agent can
+	// crash after the Ready patch and before the sentinel.
+	if err := w.releaseReadyContents(ctx, pod, objs); err != nil {
+		return err
+	}
 	name := chooseActiveContent(objs)
 	if name == "" {
 		return nil
@@ -202,10 +208,11 @@ func (w *NodeController) reconcileSourcePod(ctx context.Context, pod *corev1.Pod
 		return w.setSnapshotContentFailed(ctx, content, "InvalidDestination", err)
 	}
 
-	// Resume: a present artifact with unwritten status means a prior dump
-	// finished but the status write did not.
+	// Resume: a present artifact with unwritten status means a prior dump finished before the
+	// Ready-and-release sequence completed. The artifact dir exists only after the executor's
+	// atomic rename, so its presence means a completed dump.
 	if artifactPresent(artifactPath) {
-		return w.setSnapshotContentSucceeded(ctx, content)
+		return w.markCheckpointReadyAndRelease(ctx, content, containerPID)
 	}
 
 	leaseKey := client.ObjectKey{Namespace: content.Spec.PodSnapshotRef.Namespace, Name: checkpointLeaseName(id)}
@@ -221,9 +228,66 @@ func (w *NodeController) reconcileSourcePod(ctx context.Context, pod *corev1.Pod
 	return nil
 }
 
-// runCheckpoint executes the dump under a renewed lease and writes the terminal status.
-// The container ID, host PID, and resolved locations are pre-resolved by the reconciler so
-// the dump does not re-resolve them.
+// releaseReadyContents writes snapshot-complete for Ready, non-Failed work orders on this pod.
+// chooseActiveContent ignores terminal objects so a leftover Ready capture cannot starve a new
+// dump; this path recovers the crash window where Ready is durable but the process is still blocked.
+func (w *NodeController) releaseReadyContents(ctx context.Context, pod *corev1.Pod, objs []interface{}) error {
+	logger := logr.FromContextOrDiscard(ctx)
+	for _, obj := range objs {
+		indexed, ok := contentFromInformerObj(obj)
+		if !ok || !isContentReady(indexed) || isContentFailed(indexed) {
+			continue
+		}
+		content := &snapshotv1alpha1.PodSnapshotContent{}
+		if err := w.client.Get(ctx, client.ObjectKey{Name: indexed.Name}, content); err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+			return fmt.Errorf("get Ready PodSnapshotContent %q: %w", indexed.Name, err)
+		}
+		if !isContentReady(content) || isContentFailed(content) {
+			continue
+		}
+		if err := w.releaseReadyContent(ctx, content, pod); err != nil {
+			logger.Error(err, "Failed to write snapshot-complete for Ready content", "content", content.Name)
+			return err
+		}
+	}
+	return nil
+}
+
+func (w *NodeController) releaseReadyContent(ctx context.Context, content *snapshotv1alpha1.PodSnapshotContent, pod *corev1.Pod) error {
+	logger := logr.FromContextOrDiscard(ctx)
+	if content.Spec.Source.PodRef.UID != "" && content.Spec.Source.PodRef.UID != pod.UID {
+		logger.V(1).Info("Skipping Ready release for stale source pod", "content", content.Name)
+		return nil
+	}
+	containerName, err := singleTargetContainer(content)
+	if err != nil {
+		// Spec cannot release this content; do not block a newer dump on the same pod.
+		logger.Error(err, "Skipping Ready release; invalid target container", "content", content.Name)
+		return nil
+	}
+	if !isContainerReady(pod, containerName) {
+		return nil
+	}
+	containerID := containerIDForName(pod, containerName)
+	if containerID == "" {
+		return nil
+	}
+	containerPID, _, err := w.runtime.ResolveContainer(ctx, containerID)
+	if err != nil {
+		// The capture already succeeded; if the container is gone the process is not blocked.
+		logger.V(1).Info("Skipping Ready release; container not resolvable",
+			"content", content.Name, "container", containerName)
+		return nil
+	}
+	return w.writeSentinelOrKill(logger, containerPID, content.Name)
+}
+
+// runCheckpoint executes the dump under a renewed lease, writes the Ready status, then releases
+// the target process. The container ID, host PID, and resolved locations are pre-resolved by the
+// reconciler so the dump does not re-resolve them.
 func (w *NodeController) runCheckpoint(
 	ctx context.Context,
 	content *snapshotv1alpha1.PodSnapshotContent,
@@ -270,18 +334,34 @@ func (w *NodeController) runCheckpoint(
 		return
 	}
 
-	// The dump completed, but check whether the lease was cancelled during the dump (e.g. a
-	// renewal failure). A clean context.Canceled (outer ctx shutdown) is not a lease failure.
+	// CRIU dump is not context-aware, so checkpointFn can return nil after the lease
+	// was lost. A stale holder must not mark Ready or write snapshot-complete: another
+	// holder may already be writing the same artifact. A clean context.Canceled (outer
+	// ctx shutdown) is not a lease failure.
 	if cause := context.Cause(leaseCtx); cause != nil && !errors.Is(cause, context.Canceled) {
 		logger.Error(cause, "Lease cancelled during checkpoint")
 		if patchErr := w.setSnapshotContentFailed(ctx, content, "LeaseCancelled", cause); patchErr != nil {
 			logger.Error(patchErr, "Failed to write PodSnapshotContent failed status", "content", content.Name)
+			// Another holder may already have marked Ready and be about to release.
+			// Killing here would terminate a successfully checkpointed workload.
+			if apierrors.IsConflict(patchErr) {
+				current := &snapshotv1alpha1.PodSnapshotContent{}
+				if getErr := w.client.Get(ctx, client.ObjectKey{Name: content.Name}, current); getErr != nil {
+					logger.Error(getErr, "Failed to re-read PodSnapshotContent after LeaseCancelled conflict", "content", content.Name)
+				} else if isContentReady(current) {
+					return
+				}
+			}
+		}
+		if killErr := w.killCheckpointProcess(logger, containerPID, "checkpoint lease cancelled"); killErr != nil {
+			logger.Error(killErr, "Failed to kill target after lease cancellation", "content", content.Name)
 		}
 		return
 	}
 
-	if err := w.setSnapshotContentSucceeded(ctx, content); err != nil {
-		logger.Error(err, "Failed to write PodSnapshotContent ready status", "content", content.Name)
+	if err := w.markCheckpointReadyAndRelease(ctx, content, containerPID); err != nil {
+		logger.Error(err, "Failed to finalize checkpoint ready-and-release", "content", content.Name)
+		return
 	}
 }
 
@@ -395,10 +475,10 @@ func (w *NodeController) removeCaptureEligibleLabel(ctx context.Context, pod *co
 	}
 }
 
-// setSnapshotContentSucceeded patches status with the Ready condition. On any error the caller
-// should surface it so the next reconcile iteration retries.
+// setSnapshotContentSucceeded patches status with the Ready condition. Uses optimistic locking so
+// a concurrent terminal Failed write wins and this patch is rejected rather than overwriting it.
 func (w *NodeController) setSnapshotContentSucceeded(ctx context.Context, content *snapshotv1alpha1.PodSnapshotContent) error {
-	patch := client.MergeFrom(content.DeepCopy())
+	patch := client.MergeFromWithOptions(content.DeepCopy(), client.MergeFromWithOptimisticLock{})
 	meta.SetStatusCondition(&content.Status.Conditions, metav1.Condition{
 		Type:    snapshotv1alpha1.PodSnapshotConditionReady,
 		Status:  metav1.ConditionTrue,
@@ -406,6 +486,55 @@ func (w *NodeController) setSnapshotContentSucceeded(ctx context.Context, conten
 		Message: "Checkpoint captured and verified",
 	})
 	return w.client.Status().Patch(ctx, content, patch)
+}
+
+// readyStatusConflictLimit caps Ready-patch retries after optimistic-lock conflicts so a
+// livelock of non-terminal status writes cannot spin forever.
+const readyStatusConflictLimit = 8
+
+// markCheckpointReadyAndRelease makes Ready durable before allowing the target process to exit.
+// A failed Ready patch leaves the target blocked so a later artifact resume can retry. On a
+// Ready-patch conflict, re-read and retry until Ready succeeds or a terminal state is observed:
+// Failed means SIGKILL and no sentinel; Ready already set means write the sentinel. A failed
+// sentinel write kills the still-blocked target.
+func (w *NodeController) markCheckpointReadyAndRelease(ctx context.Context, content *snapshotv1alpha1.PodSnapshotContent, containerPID int) error {
+	logger := logr.FromContextOrDiscard(ctx)
+	ready := content
+	for attempt := 0; attempt < readyStatusConflictLimit; attempt++ {
+		if err := w.setSnapshotContentSucceeded(ctx, ready); err != nil {
+			if !apierrors.IsConflict(err) {
+				logger.Error(err, "Failed to write PodSnapshotContent ready status", "content", content.Name)
+				return err
+			}
+			current := &snapshotv1alpha1.PodSnapshotContent{}
+			if getErr := w.client.Get(ctx, client.ObjectKey{Name: content.Name}, current); getErr != nil {
+				logger.Error(getErr, "Failed to re-read PodSnapshotContent after Ready conflict", "content", content.Name)
+				return getErr
+			}
+			if isContentFailed(current) {
+				return w.killCheckpointProcess(logger, containerPID, "checkpoint content already failed")
+			}
+			if isContentReady(current) {
+				return w.writeSentinelOrKill(logger, containerPID, content.Name)
+			}
+			ready = current
+			continue
+		}
+		return w.writeSentinelOrKill(logger, containerPID, ready.Name)
+	}
+	return fmt.Errorf("write PodSnapshotContent ready status %q: exceeded conflict retries", content.Name)
+}
+
+// writeSentinelOrKill writes snapshot-complete, or SIGKILLs the still-blocked target if that write fails.
+func (w *NodeController) writeSentinelOrKill(logger logr.Logger, containerPID int, contentName string) error {
+	if err := w.releaseCheckpointFn(containerPID); err != nil {
+		logger.Error(err, "Failed to write snapshot-complete sentinel", "content", contentName)
+		if killErr := w.killCheckpointProcess(logger, containerPID, "checkpoint sentinel failed"); killErr != nil {
+			logger.Error(killErr, "Failed to kill target after sentinel failure", "content", contentName)
+		}
+		return fmt.Errorf("write snapshot-complete sentinel: %w", err)
+	}
+	return nil
 }
 
 // setSnapshotContentFailed patches status with the Failed condition. Uses optimistic locking so
@@ -422,9 +551,9 @@ func (w *NodeController) setSnapshotContentFailed(ctx context.Context, content *
 }
 
 // executorCheckpoint is the production checkpointFn. The reconciler has already resolved the
-// container ID and host PID. It runs executor.Checkpoint to the destination, verifies the
-// artifact directory, and writes the snapshot-complete sentinel. On dump or verification
-// failure it SIGKILLs the CUDA-locked process before returning the error.
+// container ID and host PID. It runs executor.Checkpoint to the destination and verifies the
+// artifact directory. On dump or verification failure it SIGKILLs the CUDA-locked process before
+// returning the error. The snapshot-complete sentinel is written after Ready is durable.
 func (w *NodeController) executorCheckpoint(ctx context.Context, params CheckpointParams) error {
 	log := logr.FromContextOrDiscard(ctx)
 
@@ -441,31 +570,40 @@ func (w *NodeController) executorCheckpoint(ctx context.Context, params Checkpoi
 		Clientset:          w.clientset,
 	}
 	if err := executor.Checkpoint(ctx, w.runtime, log, req, w.config); err != nil {
-		w.killCheckpointProcess(log, params.ContainerPID, "checkpoint failed")
+		if killErr := w.killCheckpointProcess(log, params.ContainerPID, "checkpoint failed"); killErr != nil {
+			log.Error(killErr, "Failed to kill target after checkpoint failure")
+		}
 		return fmt.Errorf("checkpoint: %w", err)
 	}
 
 	info, statErr := os.Stat(params.HostPath)
 	if statErr != nil || !info.IsDir() {
-		w.killCheckpointProcess(log, params.ContainerPID, "checkpoint verification failed")
+		var verifyErr error
 		if statErr != nil {
-			return fmt.Errorf("verify checkpoint path %s: %w", params.HostPath, statErr)
+			verifyErr = fmt.Errorf("verify checkpoint path %s: %w", params.HostPath, statErr)
+		} else {
+			verifyErr = fmt.Errorf("verify checkpoint path %s: not a directory", params.HostPath)
 		}
-		return fmt.Errorf("verify checkpoint path %s: not a directory", params.HostPath)
+		if killErr := w.killCheckpointProcess(log, params.ContainerPID, "checkpoint verification failed"); killErr != nil {
+			log.Error(killErr, "Failed to kill target after checkpoint verification failure")
+		}
+		return verifyErr
 	}
 
-	if err := snapshotruntime.WriteControlSentinel(params.ContainerPID, snapshotv1alpha1.SnapshotCompleteFile); err != nil {
-		w.killCheckpointProcess(log, params.ContainerPID, "checkpoint sentinel failed")
-		return fmt.Errorf("write snapshot-complete sentinel: %w", err)
-	}
 	return nil
 }
 
-// killCheckpointProcess signals the CUDA-locked process so it does not hang after a failed dump.
-func (w *NodeController) killCheckpointProcess(log logr.Logger, pid int, reason string) {
+// killCheckpointProcess SIGKILLs the CUDA-locked process so it does not hang after a failed dump.
+// ESRCH (already exited) is success. Any other signal error is returned so callers can fail closed.
+func (w *NodeController) killCheckpointProcess(log logr.Logger, pid int, reason string) error {
 	if err := snapshotruntime.SendSignalToPID(log, pid, syscall.SIGKILL, reason); err != nil {
+		if errors.Is(err, syscall.ESRCH) {
+			return nil
+		}
 		log.Error(err, "Failed to signal checkpoint process", "reason", reason)
+		return err
 	}
+	return nil
 }
 
 // containerIDForName returns the running container's CRI-stripped ID, or "" if absent.
@@ -480,12 +618,15 @@ func containerIDForName(pod *corev1.Pod, containerName string) string {
 
 // isContentTerminal reports whether the work order already has a terminal condition.
 func isContentTerminal(content *snapshotv1alpha1.PodSnapshotContent) bool {
-	for _, t := range []string{snapshotv1alpha1.PodSnapshotConditionReady, snapshotv1alpha1.PodSnapshotConditionFailed} {
-		if cond := meta.FindStatusCondition(content.Status.Conditions, t); cond != nil && cond.Status == metav1.ConditionTrue {
-			return true
-		}
-	}
-	return false
+	return isContentReady(content) || isContentFailed(content)
+}
+
+func isContentReady(content *snapshotv1alpha1.PodSnapshotContent) bool {
+	return meta.IsStatusConditionTrue(content.Status.Conditions, snapshotv1alpha1.PodSnapshotConditionReady)
+}
+
+func isContentFailed(content *snapshotv1alpha1.PodSnapshotContent) bool {
+	return meta.IsStatusConditionTrue(content.Status.Conditions, snapshotv1alpha1.PodSnapshotConditionFailed)
 }
 
 // artifactPresent reports whether a completed checkpoint directory already exists on disk.

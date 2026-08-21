@@ -59,6 +59,7 @@ type NodeController struct {
 	checkpointFn           func(ctx context.Context, params CheckpointParams) error
 	restoreFn              func(context.Context, snapshotruntime.Runtime, logr.Logger, executor.RestoreRequest, executor.RestoreMounter) (int, error)
 	writeControlSentinelFn func(int, string) error
+	releaseCheckpointFn    func(containerPID int) error
 
 	inFlight   map[string]struct{}
 	inFlightMu sync.Mutex
@@ -143,6 +144,9 @@ func newDefaultController(
 		writeControlSentinelFn: snapshotruntime.WriteControlSentinel,
 	}
 	w.checkpointFn = w.executorCheckpoint
+	w.releaseCheckpointFn = func(containerPID int) error {
+		return snapshotruntime.WriteControlSentinel(containerPID, snapshotv1alpha1.SnapshotCompleteFile)
+	}
 	return w
 }
 

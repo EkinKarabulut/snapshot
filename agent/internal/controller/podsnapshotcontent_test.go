@@ -7,8 +7,10 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -25,6 +27,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	crfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	snapshottypes "github.com/ai-dynamo/snapshot/agent/internal/types"
 	snapshotv1alpha1 "github.com/ai-dynamo/snapshot/api/v1alpha1"
@@ -95,6 +98,7 @@ func makeNodeController(t *testing.T, fc *fakeCheckpointer, objs ...client.Objec
 		contentIndexer: idx,
 	}
 	w.checkpointFn = fc.fn
+	w.releaseCheckpointFn = func(int) error { return nil }
 	return w
 }
 
@@ -436,12 +440,18 @@ func TestReconcileSnapshotContent_OpaqueNameUsesPodLabel(t *testing.T) {
 	}, time.Second, 5*time.Millisecond)
 }
 
-func TestReconcileSnapshotContent_ResumeWritesReady(t *testing.T) {
+func TestReconcileSnapshotContent_ResumeWritesReadyAndReleases(t *testing.T) {
 	content := makeWorkOrder("podsnapshotcontent-abc", "node-a", "abc")
 	pod := makeSourcePod("abc")
 	fc := &fakeCheckpointer{}
 	w := makeNodeController(t, fc, content, pod)
 	w.runtime = &fakeRuntime{resolveContainerPID: 4242}
+	released := false
+	w.releaseCheckpointFn = func(containerPID int) error {
+		assert.Equal(t, 4242, containerPID)
+		released = true
+		return nil
+	}
 	// Pre-create the artifact directory at the resolved destination so the resume check fires.
 	dest := filepath.Join(w.config.Storage.BasePath, "abc", "versions", "1")
 	require.NoError(t, os.MkdirAll(dest, 0o755))
@@ -449,9 +459,207 @@ func TestReconcileSnapshotContent_ResumeWritesReady(t *testing.T) {
 
 	require.NoError(t, w.reconcileSourcePod(context.Background(), pod))
 	assert.False(t, fc.wasCalled())
+	assert.True(t, released)
 	got := getContent(t, w, content.Name)
 	cond := meta.FindStatusCondition(got.Status.Conditions, snapshotv1alpha1.PodSnapshotConditionReady)
 	require.NotNil(t, cond)
+}
+
+func TestReconcileSourcePod_ReadyDoesNotStarveNewDump(t *testing.T) {
+	ready := makeWorkOrder("podsnapshotcontent-old", "node-a", "abc")
+	ready.CreationTimestamp = metav1.Unix(1000, 0)
+	meta.SetStatusCondition(&ready.Status.Conditions, metav1.Condition{
+		Type:    snapshotv1alpha1.PodSnapshotConditionReady,
+		Status:  metav1.ConditionTrue,
+		Reason:  "Captured",
+		Message: "Checkpoint captured and verified",
+	})
+	pending := makeWorkOrder("podsnapshotcontent-new", "node-a", "abc")
+	pending.CreationTimestamp = metav1.Unix(2000, 0)
+	pod := makeSourcePod("abc")
+	fc := &fakeCheckpointer{}
+	w := makeNodeController(t, fc, ready, pending, pod)
+	w.runtime = &fakeRuntime{resolveContainerPID: 7}
+
+	require.NoError(t, w.reconcileSourcePod(context.Background(), pod))
+	require.Eventually(t, fc.wasCalled, time.Second, 5*time.Millisecond)
+}
+
+func TestReconcileSourcePod_InvalidReadySpecDoesNotStarveNewDump(t *testing.T) {
+	ready := makeWorkOrder("podsnapshotcontent-old", "node-a", "abc")
+	ready.CreationTimestamp = metav1.Unix(1000, 0)
+	ready.Spec.Source.PodRef.Containers = nil
+	meta.SetStatusCondition(&ready.Status.Conditions, metav1.Condition{
+		Type:    snapshotv1alpha1.PodSnapshotConditionReady,
+		Status:  metav1.ConditionTrue,
+		Reason:  "Captured",
+		Message: "Checkpoint captured and verified",
+	})
+	pending := makeWorkOrder("podsnapshotcontent-new", "node-a", "abc")
+	pending.CreationTimestamp = metav1.Unix(2000, 0)
+	pod := makeSourcePod("abc")
+	fc := &fakeCheckpointer{}
+	w := makeNodeController(t, fc, ready, pending, pod)
+	w.runtime = &fakeRuntime{resolveContainerPID: 7}
+
+	require.NoError(t, w.reconcileSourcePod(context.Background(), pod))
+	require.Eventually(t, fc.wasCalled, time.Second, 5*time.Millisecond)
+}
+
+func TestReconcileSourcePod_ReadyRetriesSentinel(t *testing.T) {
+	ready := makeWorkOrder("podsnapshotcontent-ready", "node-a", "abc")
+	meta.SetStatusCondition(&ready.Status.Conditions, metav1.Condition{
+		Type:    snapshotv1alpha1.PodSnapshotConditionReady,
+		Status:  metav1.ConditionTrue,
+		Reason:  "Captured",
+		Message: "Checkpoint captured and verified",
+	})
+	pod := makeSourcePod("abc")
+	fc := &fakeCheckpointer{}
+	w := makeNodeController(t, fc, ready, pod)
+	w.runtime = &fakeRuntime{resolveContainerPID: 11}
+	released := false
+	w.releaseCheckpointFn = func(pid int) error {
+		assert.Equal(t, 11, pid)
+		released = true
+		return nil
+	}
+
+	require.NoError(t, w.reconcileSourcePod(context.Background(), pod))
+	assert.False(t, fc.wasCalled())
+	assert.True(t, released)
+}
+
+func TestReconcileSourcePod_ReadyReleaseSkipsStalePodUID(t *testing.T) {
+	ready := makeWorkOrder("podsnapshotcontent-ready", "node-a", "abc")
+	meta.SetStatusCondition(&ready.Status.Conditions, metav1.Condition{
+		Type:    snapshotv1alpha1.PodSnapshotConditionReady,
+		Status:  metav1.ConditionTrue,
+		Reason:  "Captured",
+		Message: "Checkpoint captured and verified",
+	})
+	pod := makeSourcePod("abc")
+	pod.UID = types.UID("other-uid")
+	fc := &fakeCheckpointer{}
+	w := makeNodeController(t, fc, ready, pod)
+	w.runtime = &fakeRuntime{resolveContainerPID: 11}
+	released := false
+	w.releaseCheckpointFn = func(int) error {
+		released = true
+		return nil
+	}
+
+	require.NoError(t, w.reconcileSourcePod(context.Background(), pod))
+	assert.False(t, fc.wasCalled())
+	assert.False(t, released)
+}
+
+func TestReconcileSourcePod_ReadyReleaseFailureKillsTarget(t *testing.T) {
+	ready := makeWorkOrder("podsnapshotcontent-ready", "node-a", "abc")
+	meta.SetStatusCondition(&ready.Status.Conditions, metav1.Condition{
+		Type:    snapshotv1alpha1.PodSnapshotConditionReady,
+		Status:  metav1.ConditionTrue,
+		Reason:  "Captured",
+		Message: "Checkpoint captured and verified",
+	})
+	pod := makeSourcePod("abc")
+	ctx, target := startKillableTarget(t)
+	w := makeNodeController(t, &fakeCheckpointer{}, ready, pod)
+	w.runtime = &fakeRuntime{resolveContainerPID: target.Process.Pid}
+	w.releaseCheckpointFn = func(int) error { return errors.New("sentinel write rejected") }
+
+	require.Error(t, w.reconcileSourcePod(context.Background(), pod))
+	requireKilledBySIGKILL(t, ctx, target)
+}
+
+func TestRunCheckpoint_LeaseCancelledAfterDumpFailsAndKills(t *testing.T) {
+	orig := checkpointLeaseRenewInterval
+	checkpointLeaseRenewInterval = time.Millisecond
+	t.Cleanup(func() { checkpointLeaseRenewInterval = orig })
+
+	content := makeWorkOrder("podsnapshotcontent-abc", "node-a", "abc")
+	w := makeNodeController(t, &fakeCheckpointer{}, content)
+	released := false
+	w.releaseCheckpointFn = func(int) error {
+		released = true
+		return nil
+	}
+	w.checkpointFn = func(ctx context.Context, params CheckpointParams) error {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(2 * time.Second):
+			t.Fatal("lease ctx was not cancelled")
+			return nil
+		}
+	}
+	ctx, target := startKillableTarget(t)
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "worker-0", Namespace: "inference", UID: types.UID("pod-uid")}}
+	leaseKey := client.ObjectKey{Namespace: "inference", Name: "checkpoint-lease-abc"}
+	artifactPath := filepath.Join(w.config.Storage.BasePath, "abc", "versions", "1")
+
+	w.runCheckpoint(context.Background(), content, pod, "main", "abc123", target.Process.Pid, "abc", artifactPath, leaseKey, "abc")
+
+	assert.False(t, released)
+	requireKilledBySIGKILL(t, ctx, target)
+	got := getContent(t, w, content.Name)
+	assert.Nil(t, meta.FindStatusCondition(got.Status.Conditions, snapshotv1alpha1.PodSnapshotConditionReady))
+	failed := meta.FindStatusCondition(got.Status.Conditions, snapshotv1alpha1.PodSnapshotConditionFailed)
+	require.NotNil(t, failed)
+	assert.Equal(t, "LeaseCancelled", failed.Reason)
+}
+
+func TestRunCheckpoint_LeaseCancelledConflictReadyDoesNotKill(t *testing.T) {
+	orig := checkpointLeaseRenewInterval
+	checkpointLeaseRenewInterval = time.Millisecond
+	t.Cleanup(func() { checkpointLeaseRenewInterval = orig })
+
+	stored := makeWorkOrder("podsnapshotcontent-abc", "node-a", "abc")
+	meta.SetStatusCondition(&stored.Status.Conditions, metav1.Condition{
+		Type:    snapshotv1alpha1.PodSnapshotConditionReady,
+		Status:  metav1.ConditionTrue,
+		Reason:  "Captured",
+		Message: "Checkpoint captured and verified",
+	})
+	funcs := interceptor.Funcs{
+		SubResourcePatch: func(ctx context.Context, c client.Client, sub string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+			sc, ok := obj.(*snapshotv1alpha1.PodSnapshotContent)
+			if ok {
+				if cond := meta.FindStatusCondition(sc.Status.Conditions, snapshotv1alpha1.PodSnapshotConditionFailed); cond != nil && cond.Status == metav1.ConditionTrue {
+					return conflictErr()
+				}
+			}
+			return c.Status().Patch(ctx, obj, patch, opts...)
+		},
+	}
+	w := makeNodeControllerWithInterceptor(t, &fakeCheckpointer{}, funcs, stored)
+	releaseCalls := 0
+	w.releaseCheckpointFn = func(int) error {
+		releaseCalls++
+		return nil
+	}
+	w.checkpointFn = func(ctx context.Context, params CheckpointParams) error {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(2 * time.Second):
+			t.Fatal("lease ctx was not cancelled")
+			return nil
+		}
+	}
+	_, target := startKillableTarget(t)
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "worker-0", Namespace: "inference", UID: types.UID("pod-uid")}}
+	leaseKey := client.ObjectKey{Namespace: "inference", Name: "checkpoint-lease-abc"}
+	artifactPath := filepath.Join(w.config.Storage.BasePath, "abc", "versions", "1")
+
+	w.runCheckpoint(context.Background(), makeWorkOrder("podsnapshotcontent-abc", "node-a", "abc"), pod, "main", "abc123", target.Process.Pid, "abc", artifactPath, leaseKey, "abc")
+
+	require.NoError(t, target.Process.Signal(syscall.Signal(0)), "stale holder must not SIGKILL after another holder marked Ready")
+	require.Zero(t, releaseCalls, "stale holder must not release after Ready wins the conflict")
+	require.NotNil(t, meta.FindStatusCondition(
+		getContent(t, w, stored.Name).Status.Conditions,
+		snapshotv1alpha1.PodSnapshotConditionReady,
+	))
 }
 
 func TestReconcileSnapshotContent_PodNotFoundFails(t *testing.T) {
@@ -545,13 +753,27 @@ func TestReconcileSnapshotContent_CapturesFromPod(t *testing.T) {
 	fc := &fakeCheckpointer{}
 	w := makeNodeController(t, fc, content, pod)
 	w.runtime = &fakeRuntime{resolveContainerPID: 7}
+	unblocked := make(chan struct{})
+	t.Cleanup(func() {
+		select {
+		case <-unblocked:
+		default:
+			close(unblocked)
+		}
+	})
+	w.checkpointFn = func(ctx context.Context, params CheckpointParams) error {
+		err := fc.fn(ctx, params)
+		<-unblocked
+		return err
+	}
 
 	require.NoError(t, w.reconcileSourcePod(context.Background(), pod))
 
-	// acquireLease runs synchronously in reconcileSourcePod before the goroutine is launched, so
-	// the Lease exists immediately after the function returns.
+	// acquireLease runs synchronously in reconcileSourcePod before the goroutine is launched.
+	// Hold the dump so releaseLease cannot delete the Lease before this assertion.
 	_, err := w.clientset.CoordinationV1().Leases("inference").Get(context.Background(), "checkpoint-lease-abc", metav1.GetOptions{})
-	assert.NoError(t, err, "Lease checkpoint-lease-abc must exist in namespace inference")
+	require.NoError(t, err, "Lease checkpoint-lease-abc must exist in namespace inference")
+	close(unblocked)
 
 	require.Eventually(t, fc.wasCalled, time.Second, 5*time.Millisecond)
 
@@ -609,20 +831,29 @@ func TestReconcileSourcePod_ContainersWinsOverLegacyAnnotation(t *testing.T) {
 		"target must come from PodRef.Containers, not the legacy target-containers annotation")
 }
 
-func TestRunCheckpoint_WritesReadyOnSuccess(t *testing.T) {
+func TestRunCheckpoint_WritesReadyBeforeRelease(t *testing.T) {
 	content := makeWorkOrder("podsnapshotcontent-abc", "node-a", "abc")
 	fc := &fakeCheckpointer{}
 	w := makeNodeController(t, fc, content)
 	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "worker-0", Namespace: "inference", UID: types.UID("pod-uid")}}
 	leaseKey := client.ObjectKey{Namespace: "inference", Name: "checkpoint-lease-abc"}
 	artifactPath := filepath.Join(w.config.Storage.BasePath, "abc", "versions", "1")
+	released := false
+	w.releaseCheckpointFn = func(containerPID int) error {
+		assert.Equal(t, 7, containerPID)
+		cond := meta.FindStatusCondition(
+			getContent(t, w, content.Name).Status.Conditions,
+			snapshotv1alpha1.PodSnapshotConditionReady,
+		)
+		require.NotNil(t, cond, "Ready must be observable before the target is released")
+		released = true
+		return nil
+	}
 
 	w.runCheckpoint(context.Background(), content, pod, "main", "abc123", 7, "abc", artifactPath, leaseKey, "abc")
 
 	assert.True(t, fc.wasCalled())
-	got := getContent(t, w, content.Name)
-	cond := meta.FindStatusCondition(got.Status.Conditions, snapshotv1alpha1.PodSnapshotConditionReady)
-	require.NotNil(t, cond)
+	assert.True(t, released)
 }
 
 func TestRunCheckpoint_WritesFailedOnError(t *testing.T) {
@@ -639,6 +870,50 @@ func TestRunCheckpoint_WritesFailedOnError(t *testing.T) {
 	cond := meta.FindStatusCondition(got.Status.Conditions, snapshotv1alpha1.PodSnapshotConditionFailed)
 	require.NotNil(t, cond)
 	assert.Equal(t, "CheckpointFailed", cond.Reason)
+}
+
+func TestRunCheckpoint_ReleaseFailureKillsTarget(t *testing.T) {
+	ctx, target := startKillableTarget(t)
+
+	content := makeWorkOrder("podsnapshotcontent-abc", "node-a", "abc")
+	w := makeNodeController(t, &fakeCheckpointer{}, content)
+	w.releaseCheckpointFn = func(int) error { return errors.New("sentinel write rejected") }
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "worker-0", Namespace: "inference", UID: types.UID("pod-uid")}}
+	leaseKey := client.ObjectKey{Namespace: "inference", Name: "checkpoint-lease-abc"}
+	artifactPath := filepath.Join(w.config.Storage.BasePath, "abc", "versions", "1")
+
+	w.runCheckpoint(context.Background(), content, pod, "main", "abc123", target.Process.Pid, "abc", artifactPath, leaseKey, "abc")
+
+	requireKilledBySIGKILL(t, ctx, target)
+	require.NotNil(t, meta.FindStatusCondition(
+		getContent(t, w, content.Name).Status.Conditions,
+		snapshotv1alpha1.PodSnapshotConditionReady,
+	))
+}
+
+// startKillableTarget starts a short-lived sleep process the test can assert was SIGKILLed.
+func startKillableTarget(t *testing.T) (context.Context, *exec.Cmd) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	t.Cleanup(cancel)
+	target := exec.CommandContext(ctx, "sleep", "30")
+	require.NoError(t, target.Start())
+	t.Cleanup(func() {
+		if target.ProcessState == nil {
+			_ = target.Process.Kill()
+		}
+	})
+	return ctx, target
+}
+
+func requireKilledBySIGKILL(t *testing.T, ctx context.Context, target *exec.Cmd) {
+	t.Helper()
+	err := target.Wait()
+	require.NoError(t, ctx.Err(), "killCheckpointProcess did not terminate the target before the test deadline")
+	require.Error(t, err)
+	waitStatus, ok := target.ProcessState.Sys().(syscall.WaitStatus)
+	require.True(t, ok)
+	assert.Equal(t, syscall.SIGKILL, waitStatus.Signal())
 }
 
 // mustUnstructured converts a typed object to the *unstructured.Unstructured the dynamic informer
