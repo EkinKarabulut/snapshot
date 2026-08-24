@@ -7,6 +7,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 // SnapshotJob condition types. The controller sets these via meta.SetStatusCondition.
@@ -17,11 +18,11 @@ const (
 	// SnapshotJobConditionCaptured is True when the CRIU dump of the target
 	// container is complete (PodSnapshot Ready=True).
 	SnapshotJobConditionCaptured = "Captured"
-	// SnapshotJobConditionCompleted is True when all pod containers have exited 0
-	// (batch/v1 Job Complete=True) and the CRIU dump has been observed complete.
+	// SnapshotJobConditionCompleted is True when the checkpoint is captured and
+	// the source batch/v1 Job has completed its post-capture workload logic.
 	SnapshotJobConditionCompleted = "Completed"
 	// SnapshotJobConditionFailed is True on terminal failure. The batch/v1 Job is
-	// preserved (not deleted) so the pod and its container logs stay available.
+	// preserved for status and debugging; Kubernetes controls failed pod retention.
 	SnapshotJobConditionFailed = "Failed"
 )
 
@@ -40,13 +41,23 @@ const (
 	ReasonJobCompleted            = "JobCompleted"
 
 	// Failed=True
-	ReasonCaptureFailed           = "CaptureFailed"
-	ReasonPodSnapshotFailed       = "PodSnapshotFailed"
-	ReasonJobFailed               = "JobFailed"
-	ReasonDeadlineExceeded        = "DeadlineExceeded"
-	ReasonPodSnapshotNameConflict = "PodSnapshotNameConflict"
-	ReasonJobNameConflict         = "JobNameConflict"
-	ReasonJobDeleted              = "JobDeleted"
+	ReasonCaptureFailed     = "CaptureFailed"
+	ReasonPodSnapshotFailed = "PodSnapshotFailed"
+	ReasonJobFailed         = "JobFailed"
+	ReasonDeadlineExceeded  = "DeadlineExceeded"
+	// ReasonSourceCompletedWithoutCapture means the BatchJob reported Complete=True,
+	// but the authoritative PodSnapshotContent remained nonterminal after the source
+	// pod exited. There is no observed capture error; the required capture result is
+	// missing after the source exited.
+	ReasonSourceCompletedWithoutCapture = "SourceCompletedWithoutCapture"
+	ReasonPodSnapshotNameConflict       = "PodSnapshotNameConflict"
+	// ReasonPodSnapshotDeleted means a previously recorded PodSnapshot no
+	// longer exists. SnapshotJob is one-shot, so the capture is not recreated.
+	ReasonPodSnapshotDeleted = "PodSnapshotDeleted"
+	// ReasonJobNameConflict means the deterministic Job name is held by a
+	// foreign object or by a different Job UID than the one already recorded.
+	ReasonJobNameConflict = "JobNameConflict"
+	ReasonJobDeleted      = "JobDeleted"
 	// ReasonInvalidSpec covers spec-level validation failures caught before
 	// building the source Job, for objects that bypassed CEL admission.
 	ReasonInvalidSpec = "InvalidSpec"
@@ -58,9 +69,10 @@ const (
 // instead of an owner-based watch.
 const SnapshotJobOwnerLabel = "nvidia.com/snapshot-job"
 
-// SnapshotJobOwnerUIDLabel binds a produced PodSnapshot to one concrete
-// SnapshotJob incarnation. The name label alone is insufficient because capture
-// artifacts outlive their SnapshotJob and names can be reused.
+// SnapshotJobOwnerUIDLabel binds SnapshotJob-created resources to one concrete
+// SnapshotJob incarnation. It is stamped into the source Job's immutable pod
+// template and onto the produced PodSnapshot; the name label alone is
+// insufficient because names can be reused.
 const SnapshotJobOwnerUIDLabel = "nvidia.com/snapshot-job-uid"
 
 // IsSnapshotJobCompleted reports whether the SnapshotJob's Completed condition is True.
@@ -74,8 +86,8 @@ func IsSnapshotJobFailed(j *SnapshotJob) bool {
 }
 
 // IsSnapshotJobTerminal reports whether the SnapshotJob has reached a terminal
-// state (Completed=True or Failed=True). Terminal SnapshotJobs are not
-// reconciled further.
+// state (Completed=True or Failed=True). Completed objects may still reconcile
+// to retry source Job cleanup.
 func IsSnapshotJobTerminal(j *SnapshotJob) bool {
 	return IsSnapshotJobCompleted(j) || IsSnapshotJobFailed(j)
 }
@@ -93,8 +105,7 @@ type SnapshotJobSpec struct {
 	PodTemplate corev1.PodTemplateSpec `json:"podTemplate"`
 
 	// ActiveDeadlineSeconds bounds the total time allowed for pod scheduling,
-	// quiesce, dump, and all containers exiting. Applied verbatim to the
-	// batch/v1 Job.
+	// quiesce, and dump. Applied verbatim to the batch/v1 Job.
 	// +optional
 	// +kubebuilder:default=3600
 	// +kubebuilder:validation:Minimum=1
@@ -131,11 +142,23 @@ type PodSnapshotTemplate struct {
 
 // SnapshotJobStatus defines the observed state of SnapshotJob.
 type SnapshotJobStatus struct {
+	// SourceJobUID identifies the one source batch/v1 Job incarnation accepted
+	// for this one-shot SnapshotJob. Once set, a missing Job or a same-name Job
+	// with another UID is terminal and must never cause the workload to run again.
+	// +optional
+	SourceJobUID types.UID `json:"sourceJobUID,omitempty"`
+
 	// PodSnapshotName is the name of the PodSnapshot produced by this job. Set
 	// when the PodSnapshot is created. Distinguishes "never created" (empty)
 	// from "created but missing" (set, not found).
 	// +optional
 	PodSnapshotName string `json:"podSnapshotName,omitempty"`
+
+	// PodSnapshotUID identifies the one PodSnapshot incarnation accepted for
+	// this one-shot capture. Once set, a missing PodSnapshot or a same-name
+	// object with another UID is terminal and must never start another capture.
+	// +optional
+	PodSnapshotUID types.UID `json:"podSnapshotUID,omitempty"`
 
 	// StartedAt is when the controller first observed the source pod Ready
 	// (job.status.ready > 0), not the pod's own Ready transition time — it can
@@ -150,12 +173,15 @@ type SnapshotJobStatus struct {
 	// Conditions reflect the current state of the SnapshotJob. Types: Running,
 	// Captured, Completed, Failed.
 	// +optional
+	// +listType=map
+	// +listMapKey=type
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Namespaced,shortName=snapjob
+// +kubebuilder:validation:XValidation:rule="size(self.metadata.name) <= 63",message="metadata.name must be no more than 63 characters because SnapshotJob uses it as a label value"
 // +kubebuilder:printcolumn:name="Running",type="string",JSONPath=".status.conditions[?(@.type=='Running')].status"
 // +kubebuilder:printcolumn:name="Captured",type="string",JSONPath=".status.conditions[?(@.type=='Captured')].status"
 // +kubebuilder:printcolumn:name="Completed",type="string",JSONPath=".status.conditions[?(@.type=='Completed')].status"
@@ -173,8 +199,9 @@ type SnapshotJob struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
+	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="spec is immutable"
-	Spec   SnapshotJobSpec   `json:"spec,omitempty"`
+	Spec   SnapshotJobSpec   `json:"spec"`
 	Status SnapshotJobStatus `json:"status,omitempty"`
 }
 
