@@ -5,6 +5,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -574,6 +575,35 @@ func TestSnapshotJobReconcileSidecarTerminatedNonZeroCompletes(t *testing.T) {
 	assert.False(t, snapshotv1alpha1.IsSnapshotJobFailed(updated))
 }
 
+func TestSnapshotJobReconcileSidecarRestartAfterCacheReadIsNotTrusted(t *testing.T) {
+	s := snapshotJobReconcilerScheme()
+	// The cache observed the sidecar mid-restart-cycle Terminated; the kubelet
+	// has since brought it back up (native sidecars can cycle
+	// Terminated -> Running, unlike regular containers). A terminal-looking
+	// cache read is irreversible here (it drives Job deletion), so it must be
+	// re-confirmed against a live read rather than trusted outright.
+	sj, job, pod, snap := sidecarSnapshotJob(t, s,
+		&corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 0}})
+
+	livePod := pod.DeepCopy()
+	livePod.Status.InitContainerStatuses = []corev1.ContainerStatus{
+		{Name: "sidecar", State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}},
+	}
+
+	r := makeSnapshotJobReconciler(s, sj, job, pod, snap)
+	r.NonCacheReadClient = fake.NewClientBuilder().WithScheme(s).WithObjects(livePod).Build()
+
+	result, err := r.Reconcile(context.Background(), reconcileRequest(sj))
+	require.NoError(t, err)
+	assert.Equal(t, captureResolutionBackstop, result.RequeueAfter)
+
+	updated := &snapshotv1alpha1.SnapshotJob{}
+	require.NoError(t, r.Get(context.Background(), reconcileRequest(sj).NamespacedName, updated))
+	assert.False(t, snapshotv1alpha1.IsSnapshotJobCompleted(updated),
+		"a stale cached Terminated must not complete the SnapshotJob when the sidecar is actually still running")
+	assert.False(t, snapshotv1alpha1.IsSnapshotJobFailed(updated))
+}
+
 func TestSnapshotJobReconcileHelperUnverifiableFails(t *testing.T) {
 	s := snapshotJobReconcilerScheme()
 	sj, job, _, snap := helperSnapshotJob(t, s,
@@ -618,6 +648,82 @@ func TestSnapshotJobReconcileReadyCaptureWithDeadlineFails(t *testing.T) {
 	require.NotNil(t, failed)
 	assert.Equal(t, snapshotv1alpha1.ReasonDeadlineExceeded, failed.Reason,
 		"the deadline bounds the whole source lifecycle, helpers included, even after a successful capture")
+}
+
+func TestSnapshotJobReconcileCapturedKeepsCaptureReasonUnderDeadline(t *testing.T) {
+	s := snapshotJobReconcilerScheme()
+	sj := minimalSnapshotJob()
+	sj.UID = types.UID("sj-uid")
+	job, err := buildSourceJob(sj)
+	require.NoError(t, err)
+	require.NoError(t, controllerutil.SetControllerReference(sj, job, s))
+	pod := sourcePodForJob(job)
+	snap, err := buildPodSnapshot(sj, pod)
+	require.NoError(t, err)
+	meta.SetStatusCondition(&snap.Status.Conditions, metav1.Condition{
+		Type: snapshotv1alpha1.PodSnapshotConditionFailed, Status: metav1.ConditionTrue,
+		Reason: "CRIUDumpFailed", Message: "dump failed",
+	})
+	setJobFailureCondition(job, batchv1.JobFailureTarget, batchv1.JobReasonDeadlineExceeded, "Job was active longer than specified deadline")
+
+	r := makeSnapshotJobReconciler(s, sj, job, pod, snap)
+	_, err = r.Reconcile(context.Background(), reconcileRequest(sj))
+	require.NoError(t, err)
+
+	// One owner per condition: the deadline is the aggregate root cause, but it
+	// must not rewrite the capture's own result.
+	updated := &snapshotv1alpha1.SnapshotJob{}
+	require.NoError(t, r.Get(context.Background(), reconcileRequest(sj).NamespacedName, updated))
+	failed := meta.FindStatusCondition(updated.Status.Conditions, snapshotv1alpha1.SnapshotJobConditionFailed)
+	require.NotNil(t, failed)
+	assert.Equal(t, snapshotv1alpha1.ReasonDeadlineExceeded, failed.Reason)
+	captured := meta.FindStatusCondition(updated.Status.Conditions, snapshotv1alpha1.SnapshotJobConditionCaptured)
+	require.NotNil(t, captured)
+	assert.Equal(t, metav1.ConditionFalse, captured.Status)
+	assert.Equal(t, snapshotv1alpha1.ReasonCaptureFailed, captured.Reason,
+		"Captured is owned by PodSnapshot.status; the Job's deadline must not overwrite it")
+	assert.Contains(t, captured.Message, "dump failed")
+}
+
+func TestSnapshotJobReconcileHelperVerificationCacheMissDoesNotFail(t *testing.T) {
+	s := snapshotJobReconcilerScheme()
+	sj, job, pod, snap := helperSnapshotJob(t, s,
+		corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 0}})
+
+	// The pod exists on the API server but not in the informer yet. Helper
+	// verification must confirm the cached miss authoritatively instead of
+	// writing the sticky unverifiable failure.
+	r := makeSnapshotJobReconciler(s, sj, job, snap)
+	r.NonCacheReadClient = fake.NewClientBuilder().WithScheme(s).WithObjects(pod).Build()
+
+	_, err := r.Reconcile(context.Background(), reconcileRequest(sj))
+	require.NoError(t, err)
+
+	updated := &snapshotv1alpha1.SnapshotJob{}
+	require.NoError(t, r.Get(context.Background(), reconcileRequest(sj).NamespacedName, updated))
+	assert.False(t, snapshotv1alpha1.IsSnapshotJobFailed(updated),
+		"a pod hidden by informer lag must not fail helper verification")
+	assert.True(t, snapshotv1alpha1.IsSnapshotJobCompleted(updated))
+}
+
+func TestDeriveCapturedStatusDoesNotDowngradeCapturedTrue(t *testing.T) {
+	sj := minimalSnapshotJob()
+	now := metav1.Now()
+	setCondition(sj, snapshotv1alpha1.SnapshotJobConditionCaptured, metav1.ConditionTrue, now,
+		snapshotv1alpha1.ReasonCaptureCompleted, "CRIU dump of the target container is complete")
+
+	// The capture succeeded earlier; losing the PodSnapshot afterwards fails the
+	// SnapshotJob but must not rewrite the recorded capture success.
+	observed := terminalObservation(snapshotv1alpha1.ReasonPodSnapshotDeleted,
+		errors.New("PodSnapshot no longer exists"))
+	status := deriveSnapshotJobStatus(sj, observed, now)
+
+	captured := meta.FindStatusCondition(status.Conditions, snapshotv1alpha1.SnapshotJobConditionCaptured)
+	require.NotNil(t, captured)
+	assert.Equal(t, metav1.ConditionTrue, captured.Status)
+	failed := meta.FindStatusCondition(status.Conditions, snapshotv1alpha1.SnapshotJobConditionFailed)
+	require.NotNil(t, failed)
+	assert.Equal(t, snapshotv1alpha1.ReasonPodSnapshotDeleted, failed.Reason)
 }
 
 func TestSnapshotJobReconcileWaitsForCaptureWhenJobFailsDuringPendingCapture(t *testing.T) {
