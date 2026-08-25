@@ -311,12 +311,12 @@ func (sr *PodSnapshotReconciler) captureFromSourcePod(ctx context.Context, snap 
 	return sr.bindContent(ctx, snap, content.Name)
 }
 
-// verifyContentBacklink errors when a content's backref does not point at this PodSnapshot
-// (namespace/name, and uid when recorded). It is pod-free: the content↔pod relationship is the
+// verifyContentBacklink errors when a content's complete backref does not point at this PodSnapshot
+// (namespace, name, and UID). It is pod-free: the content↔pod relationship is the
 // PodSnapshotContent's own concern, not the PodSnapshot reconciler's.
 func verifyContentBacklink(snap *snapshotv1alpha1.PodSnapshot, content *snapshotv1alpha1.PodSnapshotContent) error {
 	if ref := content.Spec.PodSnapshotRef; ref.Namespace != snap.Namespace || ref.Name != snap.Name ||
-		(ref.UID != "" && ref.UID != snap.UID) {
+		ref.UID == "" || ref.UID != snap.UID {
 		return fmt.Errorf("PodSnapshotContent %q is bound to %s/%s (uid %q), not %s/%s (uid %q)",
 			content.Name, ref.Namespace, ref.Name, ref.UID, snap.Namespace, snap.Name, snap.UID)
 	}

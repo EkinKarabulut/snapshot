@@ -14,15 +14,6 @@ import (
 	"github.com/ai-dynamo/snapshot/operator/internal/protocol"
 )
 
-// sourceJobArtifactVersion satisfies protocol.CheckpointJobOptions.ArtifactVersion,
-// which the agent uses as the versions/<N> path segment under the artifact's
-// base path (see ResolveCheckpointStorage). SnapshotJob has no concept of
-// artifact versioning; the constant exists only because the shared option
-// struct still carries the field. If ArtifactVersion is ever repurposed for
-// real multi-version artifacts, this call site needs a real value here, not
-// a hardcoded "1".
-const sourceJobArtifactVersion = "1"
-
 // buildSourceJob constructs the desired batch/v1 Job for a SnapshotJob's source pod.
 // It reuses protocol.NewCheckpointJob unchanged — that function's body is the agent
 // contract (control volume, readiness probe, labels, seccomp, sidecar opt-outs), not
@@ -34,8 +25,8 @@ const sourceJobArtifactVersion = "1"
 // source it from — a caller needing cuda-checkpoint --launch-job wrapping sets it
 // up themselves in spec.podTemplate).
 func buildSourceJob(sj *snapshotv1alpha1.SnapshotJob) (*batchv1.Job, error) {
-	// sj.Name is also used as a label value (SnapshotJobOwnerLabel,
-	// CheckpointIDLabel). Admission caps metadata.name at the label-value limit;
+	// sj.Name is also used as a SnapshotJobOwnerLabel value. Admission caps
+	// metadata.name at the label-value limit;
 	// retain this check for objects that predate or bypass that schema.
 	// IsLabelValue reports the reasons sj.Name fails Kubernetes label-value
 	// syntax (RFC 1123: <=63 chars, alphanumeric/'-'/'_'/'.', start/end
@@ -60,8 +51,6 @@ func buildSourceJob(sj *snapshotv1alpha1.SnapshotJob) (*batchv1.Job, error) {
 		Namespace:             sj.Namespace,
 		Name:                  sj.Name,
 		TargetContainer:       targetContainer,
-		CheckpointID:          sj.Name,
-		ArtifactVersion:       sourceJobArtifactVersion,
 		SeccompProfile:        snapshotv1alpha1.DefaultSeccompLocalhostProfile,
 		ActiveDeadlineSeconds: sj.Spec.ActiveDeadlineSeconds,
 		TTLSecondsAfterFinish: nil,
