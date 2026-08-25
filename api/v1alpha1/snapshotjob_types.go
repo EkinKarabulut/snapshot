@@ -18,8 +18,13 @@ const (
 	// SnapshotJobConditionCaptured is True when the CRIU dump of the target
 	// container is complete (PodSnapshot Ready=True).
 	SnapshotJobConditionCaptured = "Captured"
-	// SnapshotJobConditionCompleted is True when the checkpoint is captured and
-	// the source batch/v1 Job has completed its post-capture workload logic.
+	// SnapshotJobConditionCompleted is True when the checkpoint artifact is
+	// durably captured (PodSnapshot Ready=True) AND the source Job has
+	// finished. The checkpoint terminates the target container (its exit is
+	// expected and never required to be zero), but every other container must
+	// run to completion and exit 0 before cleanup: deleting the Job earlier
+	// would kill helper containers (e.g. a GMS saver writing weight artifacts
+	// concurrently with the dump) mid-work.
 	SnapshotJobConditionCompleted = "Completed"
 	// SnapshotJobConditionFailed is True on terminal failure. The batch/v1 Job is
 	// preserved for status and debugging; Kubernetes controls failed pod retention.
@@ -36,9 +41,21 @@ const (
 	ReasonCaptureInProgress = "CaptureInProgress"
 	ReasonCaptureCompleted  = "CaptureCompleted"
 
-	// Completed
+	// Completed. WaitingForPodCompletion covers the window where the capture
+	// artifact is Ready but the source pod's other containers (helpers such as
+	// a GMS saver) are still running. JobCompleted means the source Job
+	// finished with every non-target container exiting 0; the target
+	// container's own exit is expected to be the checkpoint's kill.
 	ReasonWaitingForPodCompletion = "WaitingForPodCompletion"
 	ReasonJobCompleted            = "JobCompleted"
+
+	// Failed=False. ReasonNoFailure means no failure has been observed
+	// (metav1.Condition requires a non-empty reason, so the condition cannot
+	// be present without one). All four conditions are present from the first
+	// status write and are only updated afterwards (status/reason/message),
+	// never removed, so consumers can always distinguish "known False" from
+	// "not yet evaluated".
+	ReasonNoFailure = "NoFailure"
 
 	// Failed=True
 	ReasonCaptureFailed     = "CaptureFailed"
