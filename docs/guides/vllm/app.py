@@ -35,6 +35,9 @@ async def generate_text(
 
 
 async def main() -> None:
+    if os.environ.get("DYN_SNAPSHOT_RESTORE_STANDBY") == "1":
+        await asyncio.Event().wait()
+
     engine = AsyncLLM.from_engine_args(
         AsyncEngineArgs(
             model=MODEL,

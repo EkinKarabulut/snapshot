@@ -32,9 +32,10 @@ curl --fail --location \
 The program loads the model selected when building the image, runs one
 generation to initialize vLLM, and then calls `pause_generation()` and
 `sleep()`. It writes
-`ready-for-snapshot` only when the process is safe to checkpoint. After restore,
-it calls `wake_up()` and `resume_generation()`, runs another generation, and
-writes `vllm-restore-ready`.
+`ready-for-snapshot` only when the process is safe to checkpoint. In a restore
+container, it waits in standby until Snapshot injects the captured process.
+That process calls `wake_up()` and `resume_generation()`, runs another
+generation, and writes `vllm-restore-ready`.
 
 The Dockerfile starts from the official vLLM 0.27.1 image and installs the
 Ubuntu 24.04 glibc required by the current Snapshot restore bundle. It applies
