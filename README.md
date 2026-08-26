@@ -1,7 +1,7 @@
 # Snapshot
 
 Snapshot is a Kubernetes-native checkpoint and restore system for NVIDIA GPU
-workloads. It captures a fully initialized GPU pod — its running process, with
+workloads. It checkpoints a fully initialized GPU pod — its running process, with
 CPU and GPU memory — and restores that state on any compatible node, so a pod
 becomes ready in seconds instead of minutes.
 
@@ -30,14 +30,14 @@ before it can serve traffic:
 
 ## The Solution
 
-Snapshot captures a fully initialized pod once and restores it on demand, so a
+Snapshot checkpoints a fully initialized pod once and restores it on demand, so a
 new replica comes online in seconds instead of minutes.
 
-- **Capture** — pause a running pod and save its complete execution state (CPU
+- **Checkpoint** — pause a running pod and save its complete execution state (CPU
   and GPU memory) as a portable artifact.
 - **Restore** — start a new pod from that artifact on any node with matching GPU
   hardware and driver versions, skipping model loading and warm-up; the process
-  resumes from where it was captured.
+  resumes from where it was checkpointed.
 
 ## When to use it
 
@@ -116,24 +116,24 @@ Follow the instructions in [Building from source](docs/development/build-from-so
 ## How to use it
 
 You drive Snapshot entirely through Kubernetes resources, with standard tooling.
-Create a `PodSnapshot` to capture a running pod, and annotate a new pod with
+Create a `PodSnapshot` to checkpoint a running pod, and annotate a new pod with
 `nvidia.com/restore-from` to restore it. Higher-level systems wire these
 primitives into their own control loop.
 
 | Resource | Scope | Role |
 |----------|-------|------|
-| `PodSnapshot` | Namespaced | Created by callers to request a capture, or to reference an artifact for restore. |
+| `PodSnapshot` | Namespaced | Created by callers to request a checkpoint, or to reference an artifact for restore. |
 | `PodSnapshotContent` | Cluster-scoped | System-managed record of the physical artifact, bound to a `PodSnapshot`. Created by the operator, never by the caller. |
-| `SnapshotJob` | Namespaced | Runs a pod from a template and captures a `PodSnapshot` from it once ready — a self-contained capture job. |
+| `SnapshotJob` | Namespaced | Runs a pod from a template and checkpoints it into a `PodSnapshot` once ready — a self-contained checkpoint job. |
 | `nvidia.com/restore-from` | Namespaced | Pod annotation that triggers a restore from a named `PodSnapshot` in the same namespace. |
 
 Under the hood, a control-plane operator and a per-node agent perform the CRIU
 and `cuda-checkpoint` work; see [Architecture](docs/reference/architecture.md) to dive in.
 The [API reference](docs/reference/api.md) has full field-level detail and the
-capture/restore lifecycle.
+checkpoint/restore lifecycle.
 
 Once Snapshot is installed, follow the **[Quickstart](docs/quickstart.md)**
-to capture and restore your first pod.
+to checkpoint and restore your first pod.
 
 <!-- TODO(eng): validate the SnapshotJob role wording — CRD added recently (#65). -->
 
@@ -152,13 +152,13 @@ Multi-GPU and Arm support are on the roadmap.
 
 **Get started**
 
-- [Quickstart](docs/quickstart.md) — install Snapshot and capture/restore a replica end to end.
+- [Quickstart](docs/quickstart.md) — install Snapshot and checkpoint/restore a replica end to end.
 - [Usage guides](docs/guides/README.md) — build a snapshot-ready image per server, then checkpoint and restore.
 
 **Reference**
 
 - [API](docs/reference/api.md) — `PodSnapshot`, `PodSnapshotContent`, `SnapshotJob`, and the `restore-from` annotation.
-- [Architecture](docs/reference/architecture.md) — operator and node-agent design, and the capture/restore internals.
+- [Architecture](docs/reference/architecture.md) — operator and node-agent design, and the checkpoint/restore internals.
 - [Support matrix](docs/reference/support-matrix.md) — supported backends, GPUs, drivers, and Kubernetes versions.
 - [CLI (`snapshotctl`)](docs/reference/cli.md) — lower-level checkpoint/restore from a pod manifest.
 
