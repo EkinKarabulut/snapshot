@@ -1,7 +1,7 @@
 # Restore a replica
 
-Restoring starts a new replica from a snapshot instead of cold-starting it. You add
-the `nvidia.com/restore-from` annotation to a new pod, naming the `PodSnapshot` to
+Restoring starts a new replica from a snapshot instead of cold-starting it. A new
+pod carries the `nvidia.com/restore-from` annotation, naming the `PodSnapshot` to
 restore from; the node agent restores the checkpointed state into the container during
 pod startup.
 
@@ -13,7 +13,7 @@ pod startup.
 
 ## Example
 
-Add the annotation to the replica pod you want to restore:
+Add the annotation to the replica pod to restore:
 
 ```yaml
 apiVersion: v1
@@ -26,8 +26,8 @@ metadata:
 spec:
   containers:
     - name: main
-      image: <your-registry>/vllm-placeholder:<tag>
-      # ...the replica configuration you checkpointed
+      image: <registry>/vllm-placeholder:<tag>
+      # ...the replica configuration that was checkpointed
 ```
 
 ```bash

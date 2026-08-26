@@ -2,9 +2,9 @@
 
 Using Snapshot is a two-step model:
 
-1. **Build a snapshot-ready image** for your inference server. Snapshot wraps your
+1. **Build a snapshot-ready image** for the inference server. Snapshot wraps the
    normal runtime image with restore tooling (CRIU, `cuda-checkpoint`, `nsrestore`)
-   to produce a *placeholder* image that your replicas run.
+   to produce a *placeholder* image that the replicas run.
 2. **Drive checkpoint and restore through Kubernetes.** Checkpoint a replica with a
    `PodSnapshot` or a `SnapshotJob`, and add the `nvidia.com/restore-from`
    annotation to a new pod to restore it. This Kubernetes flow is the same for every

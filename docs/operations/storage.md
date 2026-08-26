@@ -23,7 +23,7 @@ The chart's `storage.pvc` values control the PVC:
 | `storage.pvc.storageClass` | Storage class (empty = cluster default) | `""` |
 | `storage.pvc.basePath` | Mount path inside the agent | `/checkpoints` |
 
-If your cluster has no default storage class that can provision RWX, set one:
+If the cluster has no default storage class that can provision RWX, set one:
 
 ```bash
 helm install snapshot oci://ghcr.io/ai-dynamo/snapshot/snapshot \
@@ -43,7 +43,7 @@ helm install snapshot ... \
 
 The named claim must support `ReadWriteMany`. Access modes are immutable, so a
 `ReadWriteOnce` claim cannot be converted in place — create a new RWX claim and, if
-you need the existing checkpoints, copy them over once.
+the existing checkpoints are needed, copy them over once.
 
 ## Retention
 

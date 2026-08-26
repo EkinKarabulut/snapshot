@@ -1,12 +1,12 @@
 # Checkpoint a replica
 
 Checkpointing saves an initialized replica's state as a snapshot artifact. There
-are two ways to do it, with an important trade-off.
+are two ways to do it, depending on the use case:
 
-| Method | What it does | Best for |
-|--------|--------------|----------|
-| **`PodSnapshot`** | Checkpoints a replica you are already running | The faster path overall — you initialize the first replica once and keep it serving. The trade-off is more orchestration: you bring the replica up, wait until it is ready, then trigger the checkpoint. |
-| **`SnapshotJob`** | Runs a replica from a template, checkpoints it once ready, then deletes it | Self-contained, with less orchestration. Fits pipelines that pre-bake a snapshot and then bring up every replica — including the first — via [restore](restore.md). |
+| Method | Choose it when… | Implication |
+|--------|-----------------|-------------|
+| **`PodSnapshot`** | The running replica can be controlled and tracked — for example, by a controller or platform that manages inference pods | The most efficient path — it checkpoints a replica that stays serving. It needs orchestration: bringing the replica up, waiting until it is ready, then triggering the checkpoint. |
+| **`SnapshotJob`** | The running pod cannot be tracked directly — for example, in a pipeline that submits the work | Snapshot runs the whole flow: it creates the replica, checkpoints it, and tears it down. Self-contained, but the source is discarded, so every replica (including the first) comes up via [restore](restore.md). |
 
 These examples use `kubectl` to show the flow. In production, an integrating
 controller or platform creates and watches these resources through the Kubernetes
@@ -45,8 +45,8 @@ kubectl wait --for=condition=Ready podsnapshot/vllm-snapshot \
 
 The operator binds a cluster-scoped `PodSnapshotContent` and records the artifact.
 Because the replica keeps running and serving, this is the faster path — the
-trade-off is that you own the orchestration of bringing it up and triggering the
-checkpoint.
+trade-off is the orchestration it requires: bringing the replica up, waiting for
+readiness, then triggering the checkpoint.
 
 ## Option 2 — `SnapshotJob` (checkpoint a throwaway replica)
 
@@ -68,7 +68,7 @@ spec:
     spec:
       containers:
         - name: main
-          image: <your-registry>/vllm-placeholder:<tag>
+          image: <registry>/vllm-placeholder:<tag>
           # ...the replica configuration to checkpoint
 ```
 

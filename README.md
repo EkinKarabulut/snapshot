@@ -62,7 +62,7 @@ infrastructure:
 
 ## Prerequisites
 
-Before installing Snapshot, make sure you have:
+Before installing Snapshot, make sure the following are in place:
 
 - A Kubernetes cluster with NVIDIA GPU nodes
 - containerd or CRI-O as the container runtime
@@ -84,9 +84,9 @@ Before installing Snapshot, make sure you have:
 
 Snapshot installs as a single per-cluster Helm release — a control-plane operator
 plus a privileged node agent (DaemonSet) on GPU nodes. Install it in its own
-namespace, and run your GPU workloads in separate namespaces.
+namespace, and run GPU workloads in separate namespaces.
 
-You can install Snapshot:
+Snapshot can be installed:
 
 - **From a release** (recommended)
 - **From source** (build it yourself)
@@ -115,7 +115,7 @@ Follow the instructions in [Building from source](docs/development/build-from-so
 
 ## How to use it
 
-You drive Snapshot entirely through Kubernetes resources, with standard tooling.
+Snapshot is driven entirely through Kubernetes resources, with standard tooling.
 Create a `PodSnapshot` to checkpoint a running pod, and annotate a new pod with
 `nvidia.com/restore-from` to restore it. Higher-level systems wire these
 primitives into their own control loop.
@@ -133,7 +133,7 @@ The [API reference](docs/reference/api.md) has full field-level detail and the
 checkpoint/restore lifecycle.
 
 Once Snapshot is installed, follow the **[Quickstart](docs/quickstart.md)**
-to checkpoint and restore your first pod.
+to checkpoint and restore a pod.
 
 <!-- TODO(eng): validate the SnapshotJob role wording — CRD added recently (#65). -->
 
@@ -181,8 +181,7 @@ Multi-GPU and Arm support are on the roadmap.
 ## Adopters
 
 [NVIDIA Dynamo](https://github.com/ai-dynamo/dynamo), the open-source
-inference-serving stack, integrates Snapshot for GPU cold-start. If you run
-Dynamo, Snapshot is available through it directly — see
+inference-serving stack, integrates Snapshot for GPU cold-start. On Dynamo, Snapshot is available through it directly — see
 [Snapshotting GPU Workers](https://docs.nvidia.com/dynamo/latest/kubernetes/operations/cold-start-optimizations/dynamo-snapshot)
 in the Dynamo docs.
 
