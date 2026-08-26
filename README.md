@@ -60,9 +60,6 @@ infrastructure:
 - **MLOps and platform engineers** who assemble deployment pipelines declaratively
   with GitOps or workflow tools.
 
-Both drive Snapshot through the Kubernetes API. The model developers on top get
-faster deployment without touching it.
-
 ## Prerequisites
 
 Before installing Snapshot, make sure you have:
