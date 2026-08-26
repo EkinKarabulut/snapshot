@@ -1,8 +1,9 @@
 # Build a snapshot-ready vLLM image
 
 Snapshot restores a replica by injecting its captured state into a *placeholder*
-image: your normal vLLM runtime image wrapped with the restore tooling (CRIU,
-`cuda-checkpoint`, `nsrestore`). Build it once and run your vLLM replicas from it.
+image: your normal vLLM runtime image prepared with the application and
+container layout Snapshot expects. The Snapshot agent injects the restore
+tooling at runtime.
 
 ## Build
 
@@ -110,55 +111,52 @@ writes `vllm-restore-ready`.
 Save the following file as `Dockerfile.vllm` next to `app.py`:
 
 ```dockerfile
-ARG VLLM_RUNTIME_IMAGE
+ARG VLLM_RUNTIME_IMAGE=vllm/vllm-openai:v0.27.1
 FROM ${VLLM_RUNTIME_IMAGE}
+
+ARG VLLM_RUNTIME_IMAGE
+ARG TARGETARCH=amd64
+
+ENV ORIGINAL_BASE_IMAGE=${VLLM_RUNTIME_IMAGE}
+
+USER root
+
+RUN set -eux; \
+    if [ "${TARGETARCH}" != "amd64" ]; then \
+      echo "Snapshot requires x86_64" >&2; \
+      exit 1; \
+    fi; \
+    printf 'deb http://archive.ubuntu.com/ubuntu noble main universe\n' \
+      >/etc/apt/sources.list.d/snapshot-noble.list; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends -t noble libc6 libc-bin; \
+    rm -f /etc/apt/sources.list.d/snapshot-noble.list; \
+    rm -rf /var/lib/apt/lists/*; \
+    mkdir -p /checkpoints
 
 WORKDIR /app
 COPY app.py ./
 ENTRYPOINT ["python3", "/app/app.py"]
 ```
 
-### 3. Build the application image
+This Dockerfile performs the complete build. It starts from the official vLLM
+image, installs the glibc version required by the current Snapshot restore
+bundle, applies the placeholder container requirements, and adds `app.py`.
+
+### 3. Build the snapshot-ready image
 
 ```bash
-export VLLM_RUNTIME_IMAGE=<your-vllm-runtime-image>
-export VLLM_APP_IMAGE=<your-registry>/vllm-app:<tag>
-
-docker build \
-  --build-arg VLLM_RUNTIME_IMAGE="$VLLM_RUNTIME_IMAGE" \
-  -f Dockerfile.vllm \
-  -t "$VLLM_APP_IMAGE" .
-
-docker push "$VLLM_APP_IMAGE"
-```
-
-The current Snapshot restore bundle is built on Ubuntu 24.04 with glibc 2.39.
-Use an x86_64 vLLM runtime image with a compatible glibc version; an older
-glibc image may build successfully but fail during restore.
-
-### 4. Build the snapshot-ready image
-
-From the `agent/` directory, build the `placeholder` target against your vLLM
-application image and push it to a registry your cluster can pull from:
-
-```bash
-export SNAPSHOT_REPO=<path-to-snapshot-repository>
-export VLLM_SNAPSHOT_IMAGE=<your-registry>/vllm-placeholder:<tag>
-
-cd "$SNAPSHOT_REPO/agent"
+export VLLM_RUNTIME_IMAGE=vllm/vllm-openai:v0.27.1
+export VLLM_SNAPSHOT_IMAGE=<your-registry>/vllm-snapshot:<tag>
 
 docker build \
   --platform linux/amd64 \
-  --target placeholder \
-  --build-context api=../api \
-  --build-arg BASE_IMAGE="$VLLM_APP_IMAGE" \
+  --build-arg VLLM_RUNTIME_IMAGE="$VLLM_RUNTIME_IMAGE" \
+  -f Dockerfile.vllm \
   -t "$VLLM_SNAPSHOT_IMAGE" .
 
 docker push "$VLLM_SNAPSHOT_IMAGE"
 ```
-
-The placeholder build preserves the `app.py` entrypoint and adds the container
-contract Snapshot needs for restore.
 
 Verify that the packaged image contains vLLM and `app.py`:
 
@@ -169,10 +167,25 @@ docker run --rm \
   -c 'import pathlib; import vllm; assert pathlib.Path("/app/app.py").is_file()'
 ```
 
+### 4. Set the model
+
+The image reads `MODEL` when the container starts, so the model is not selected
+during the image build. Set it on the target container in the `SnapshotJob`:
+
+```yaml
+env:
+  - name: MODEL
+    value: Qwen/Qwen3-0.6B
+```
+
+`Qwen/Qwen3-0.6B` is a public Hugging Face model used by the Snapshot vLLM
+test. To use model files mounted into the container instead, set the value to
+their container path, for example `/models/Qwen3-0.6B`. The same path must be
+available when restoring the replica.
+
 ## Next steps
 
-Set `MODEL` to the model name or path in the workload and use
-`$VLLM_SNAPSHOT_IMAGE` for the source and restored containers.
+Use `$VLLM_SNAPSHOT_IMAGE` for the source and restored containers.
 
 - [Checkpoint a replica with `SnapshotJob`](checkpoint.md)
 - [Restore a replica](restore.md)
