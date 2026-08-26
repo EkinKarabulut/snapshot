@@ -4,10 +4,7 @@
 ARG VLLM_RUNTIME_IMAGE=vllm/vllm-openai:v0.28.0
 FROM ${VLLM_RUNTIME_IMAGE}
 
-ARG VLLM_RUNTIME_IMAGE
 ARG TARGETARCH=amd64
-
-ENV ORIGINAL_BASE_IMAGE=${VLLM_RUNTIME_IMAGE}
 
 USER root
 
@@ -15,8 +12,7 @@ RUN set -eux; \
     if [ "${TARGETARCH}" != "amd64" ]; then \
       echo "Snapshot requires x86_64" >&2; \
       exit 1; \
-    fi; \
-    mkdir -p /checkpoints
+    fi
 
 WORKDIR /app
 COPY app.py ./
