@@ -1,8 +1,8 @@
 # Restore a replica
 
-Restoring starts a new replica from a snapshot instead of cold-starting it. You add
-the `nvidia.com/restore-from` annotation to a new pod, naming the `PodSnapshot` to
-restore from; the node agent restores the captured state into the container during
+Restoring starts a new replica from a snapshot instead of cold-starting it. A new
+pod carries the `nvidia.com/restore-from` annotation, naming the `PodSnapshot` to
+restore from; the node agent restores the checkpointed state into the container during
 pod startup.
 
 ## Prerequisites
@@ -13,7 +13,7 @@ pod startup.
 
 ## Example
 
-Add the annotation to the replica pod you want to restore:
+Add the annotation to the replica pod to restore:
 
 ```yaml
 apiVersion: v1
@@ -26,8 +26,8 @@ metadata:
 spec:
   containers:
     - name: main
-      image: <your-registry>/vllm-placeholder:<tag>
-      # ...the replica configuration you captured
+      image: <registry>/vllm-placeholder:<tag>
+      # ...the replica configuration that was checkpointed
 ```
 
 ```bash
@@ -35,8 +35,9 @@ kubectl apply -f vllm-restored.yaml
 kubectl get pod vllm-restored -n my-inference -w
 ```
 
-The restored process resumes from the captured state, skipping model loading and
-warm-up. In practice, higher-level systems add this annotation to the pods they
-create, rather than applying pods by hand.
+The node agent adds a `snapshot/Restored` condition to the pod once the restore
+completes — watch it, along with pod readiness, to confirm.
 
-<!-- TODO(eng): validate the restore-from annotation semantics, the required pod fields, and how restore interacts with readiness and scheduling. -->
+The restored process resumes from the checkpointed state, skipping model loading
+and warm-up. In practice, higher-level systems add this annotation to the pods
+they create, rather than applying pods by hand.

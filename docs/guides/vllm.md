@@ -1,7 +1,7 @@
 # Build a snapshot-ready vLLM image
 
 Snapshot restores a replica by injecting its captured state into a *placeholder*
-image: your normal vLLM runtime image prepared with the application and
+image: a vLLM runtime image prepared with the application and
 container layout Snapshot expects. The Snapshot agent injects the restore
 tooling at runtime.
 
@@ -30,8 +30,7 @@ curl --fail --location \
 ```
 
 The program loads the model passed to the container, runs one generation to
-initialize vLLM,
-and then calls `pause_generation()` and `sleep()`. It writes
+initialize vLLM, and then calls `pause_generation()` and `sleep()`. It writes
 `ready-for-snapshot` only when the process is safe to checkpoint. After restore,
 it calls `wake_up()` and `resume_generation()`, runs another generation, and
 writes `vllm-restore-ready`.
@@ -44,7 +43,7 @@ the placeholder container requirements and adds `app.py`.
 
 ```bash
 export VLLM_RUNTIME_IMAGE=vllm/vllm-openai:v0.27.1
-export VLLM_SNAPSHOT_IMAGE=<your-registry>/vllm-snapshot:<tag>
+export VLLM_SNAPSHOT_IMAGE=<registry>/vllm-snapshot:<tag>
 
 docker build \
   --platform linux/amd64 \
@@ -83,7 +82,7 @@ In Kubernetes, set the same argument on both containers:
 ```yaml
 containers:
   - name: main
-    image: <your-registry>/vllm-snapshot:<tag>
+    image: <registry>/vllm-snapshot:<tag>
     args:
       - Qwen/Qwen3-0.6B
 ```

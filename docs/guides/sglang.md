@@ -3,7 +3,7 @@
 _Documentation for this page is in progress._
 
 The build follows the same flow as [vLLM](vllm.md): build the `placeholder` target
-with `BASE_IMAGE` set to your SGLang runtime image, then push it to a registry your
+with `BASE_IMAGE` set to the SGLang runtime image, then push it to a registry the
 cluster can pull from.
 
 <!-- TODO(eng): document the SGLang base image, any server-specific replica settings, and confirm SGLang support scope. -->
