@@ -11,7 +11,7 @@ from vllm.usage.usage_lib import UsageContext
 from vllm.v1.engine.async_llm import AsyncLLM
 
 CONTROL_DIR = Path(os.environ.get("SNAPSHOT_CONTROL_DIR", "/snapshot-control"))
-MODEL = os.environ["VLLM_MODEL"]
+MODEL = os.environ["SNAPSHOT_MODEL"]
 
 
 async def generate_text(
