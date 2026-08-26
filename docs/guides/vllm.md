@@ -5,8 +5,7 @@ image: your normal vLLM runtime image wrapped with the restore tooling (CRIU,
 `cuda-checkpoint`, `nsrestore`). Build it once and run your vLLM replicas from it.
 
 This guide covers a team-owned Python application that creates vLLM through
-`AsyncLLM.from_engine_args()`. If the image starts the built-in `vllm serve`
-command, use its sleep-mode HTTP endpoints instead of editing vLLM's source.
+`AsyncLLM.from_engine_args()`.
 
 ## Prepare the Python application
 
