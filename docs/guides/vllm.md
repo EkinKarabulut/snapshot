@@ -4,11 +4,13 @@ Snapshot restores a replica by injecting its captured state into a *placeholder*
 image: your normal vLLM runtime image wrapped with the restore tooling (CRIU,
 `cuda-checkpoint`, `nsrestore`). Build it once and run your vLLM replicas from it.
 
+## Build
+
 Start with a vLLM image that already contains the model runtime and Python
 package. Add one program that prepares vLLM for checkpoint and resumes it after
 restore.
 
-## 1. Save the vLLM program
+### 1. Save the vLLM program
 
 Save the following file as `app.py`:
 
@@ -103,7 +105,7 @@ vLLM, and then calls `pause_generation()` and `sleep()`. It writes
 it calls `wake_up()` and `resume_generation()`, runs another generation, and
 writes `vllm-restore-ready`.
 
-## 2. Save the Dockerfile
+### 2. Save the Dockerfile
 
 Save the following file as `Dockerfile.vllm` next to `app.py`:
 
@@ -116,7 +118,7 @@ COPY app.py ./
 ENTRYPOINT ["python3", "/app/app.py"]
 ```
 
-## 3. Build the application image
+### 3. Build the application image
 
 ```bash
 export VLLM_RUNTIME_IMAGE=<your-vllm-runtime-image>
@@ -134,7 +136,7 @@ The current Snapshot restore bundle is built on Ubuntu 24.04 with glibc 2.39.
 Use an x86_64 vLLM runtime image with a compatible glibc version; an older
 glibc image may build successfully but fail during restore.
 
-## 4. Build the snapshot-ready image
+### 4. Build the snapshot-ready image
 
 From the `agent/` directory, build the `placeholder` target against your vLLM
 application image and push it to a registry your cluster can pull from:
@@ -167,7 +169,7 @@ docker run --rm \
   -c 'import pathlib; import vllm; assert pathlib.Path("/app/app.py").is_file()'
 ```
 
-## 5. Use the image
+## Use the image
 
 Set `MODEL` to the model name or path in the workload and use
 `$VLLM_SNAPSHOT_IMAGE` for the source and restored containers. Then
