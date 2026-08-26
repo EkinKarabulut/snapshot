@@ -169,9 +169,10 @@ docker run --rm \
   -c 'import pathlib; import vllm; assert pathlib.Path("/app/app.py").is_file()'
 ```
 
-## Use the image
+## Next steps
 
 Set `MODEL` to the model name or path in the workload and use
-`$VLLM_SNAPSHOT_IMAGE` for the source and restored containers. Then
-[create a checkpoint with `SnapshotJob`](checkpoint.md) and
-[restore the replica](restore.md).
+`$VLLM_SNAPSHOT_IMAGE` for the source and restored containers.
+
+- [Checkpoint a replica with `SnapshotJob`](checkpoint.md)
+- [Restore a replica](restore.md)
