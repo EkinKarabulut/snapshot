@@ -25,6 +25,7 @@ from vllm.engine.arg_utils import AsyncEngineArgs
 from vllm.usage.usage_lib import UsageContext
 from vllm.v1.engine.async_llm import AsyncLLM
 
+MODEL = "Qwen/Qwen3-0.6B"
 CONTROL_DIR = Path(
     os.environ.get("SNAPSHOT_CONTROL_DIR", "/snapshot-control")
 )
@@ -53,7 +54,7 @@ async def generate_text(
 async def main() -> None:
     engine = AsyncLLM.from_engine_args(
         AsyncEngineArgs(
-            model=os.environ["MODEL"],
+            model=MODEL,
             enable_sleep_mode=True,
         ),
         usage_context=UsageContext.LLM_CLASS,
@@ -100,8 +101,14 @@ if __name__ == "__main__":
     os._exit(0)
 ```
 
-This program loads the model named by `MODEL`, runs one generation to initialize
-vLLM, and then calls `pause_generation()` and `sleep()`. It writes
+Set `MODEL` near the top of `app.py` before building the image. The example uses
+`Qwen/Qwen3-0.6B`, the public Hugging Face model used by the Snapshot vLLM test.
+Other values include `TinyLlama/TinyLlama-1.1B-Chat-v1.0` or a mounted model
+path such as `/models/Qwen3-0.6B`. A mounted path must also be available when
+restoring the replica.
+
+The program loads the selected model, runs one generation to initialize vLLM,
+and then calls `pause_generation()` and `sleep()`. It writes
 `ready-for-snapshot` only when the process is safe to checkpoint. After restore,
 it calls `wake_up()` and `resume_generation()`, runs another generation, and
 writes `vllm-restore-ready`.
@@ -167,25 +174,9 @@ docker run --rm \
   -c 'import pathlib; import vllm; assert pathlib.Path("/app/app.py").is_file()'
 ```
 
-### 4. Set the model
-
-The image reads `MODEL` when the container starts, so the model is not selected
-during the image build. Set it on the target container in the `SnapshotJob`:
-
-```yaml
-env:
-  - name: MODEL
-    value: Qwen/Qwen3-0.6B
-```
-
-`Qwen/Qwen3-0.6B` is a public Hugging Face model used by the Snapshot vLLM
-test. To use model files mounted into the container instead, set the value to
-their container path, for example `/models/Qwen3-0.6B`. The same path must be
-available when restoring the replica.
-
 ## Next steps
 
 Use `$VLLM_SNAPSHOT_IMAGE` for the source and restored containers.
 
-- [Checkpoint a replica with `SnapshotJob`](checkpoint.md)
+- [Checkpoint a replica](checkpoint.md)
 - [Restore a replica](restore.md)
