@@ -29,8 +29,9 @@ curl --fail --location \
   https://raw.githubusercontent.com/ai-dynamo/snapshot/main/docs/guides/vllm/Dockerfile.vllm
 ```
 
-The program loads the model passed to the container, runs one generation to
-initialize vLLM, and then calls `pause_generation()` and `sleep()`. It writes
+The program loads the model selected when building the image, runs one
+generation to initialize vLLM, and then calls `pause_generation()` and
+`sleep()`. It writes
 `ready-for-snapshot` only when the process is safe to checkpoint. After restore,
 it calls `wake_up()` and `resume_generation()`, runs another generation, and
 writes `vllm-restore-ready`.
@@ -39,20 +40,26 @@ The Dockerfile starts from the official vLLM 0.27.1 image and installs the
 Ubuntu 24.04 glibc required by the current Snapshot restore bundle. It applies
 the placeholder container requirements and adds `app.py`.
 
-### 2. Build the snapshot-ready image
+### 2. Set the model and build the image
 
 ```bash
 export VLLM_RUNTIME_IMAGE=vllm/vllm-openai:v0.27.1
 export VLLM_SNAPSHOT_IMAGE=<registry>/vllm-snapshot:<tag>
+export VLLM_MODEL=Qwen/Qwen3-0.6B
 
 docker build \
   --platform linux/amd64 \
   --build-arg VLLM_RUNTIME_IMAGE="$VLLM_RUNTIME_IMAGE" \
+  --build-arg VLLM_MODEL="$VLLM_MODEL" \
   -f Dockerfile.vllm \
   -t "$VLLM_SNAPSHOT_IMAGE" .
 
 docker push "$VLLM_SNAPSHOT_IMAGE"
 ```
+
+Other model values include `TinyLlama/TinyLlama-1.1B-Chat-v1.0` or a mounted
+model path such as `/models/Qwen3-0.6B`. A mounted path must be available to
+both the source and restored containers.
 
 Verify that the packaged image contains vLLM and `app.py`:
 
@@ -63,34 +70,9 @@ docker run --rm \
   -c 'import pathlib; import vllm; assert pathlib.Path("/app/app.py").is_file()'
 ```
 
-### 3. Pass the model when starting the container
-
-The model is the first argument after the image:
-
-```bash
-docker run <runtime-options> \
-  "$VLLM_SNAPSHOT_IMAGE" \
-  Qwen/Qwen3-0.6B
-```
-
-Other values include `TinyLlama/TinyLlama-1.1B-Chat-v1.0` or a mounted model
-path such as `/models/Qwen3-0.6B`. A mounted path must be available to both the
-source and restored containers.
-
-In Kubernetes, set the same argument on both containers:
-
-```yaml
-containers:
-  - name: main
-    image: <registry>/vllm-snapshot:<tag>
-    args:
-      - Qwen/Qwen3-0.6B
-```
-
 ## Next steps
 
-Use `$VLLM_SNAPSHOT_IMAGE` and the same model argument for the source and
-restored containers.
+Use `$VLLM_SNAPSHOT_IMAGE` for the source and restored containers.
 
 - [Checkpoint a replica](checkpoint.md)
 - [Restore a replica](restore.md)
