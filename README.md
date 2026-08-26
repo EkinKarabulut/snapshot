@@ -53,17 +53,15 @@ roadmap.
 
 ## Who it's for
 
-Snapshot is a building block for the teams that build inference infrastructure:
+Snapshot is a building block for the teams that build and operate inference
+infrastructure:
 
-- Engineers developing **Kubernetes controllers** that manage the inference
-  lifecycle.
-- **Platforms that orchestrate inference pipelines** and want fast, repeatable
-  GPU startup.
+- **Developers** building Kubernetes controllers, operators, or serving platforms.
+- **MLOps and platform engineers** who assemble deployment pipelines declaratively
+  with GitOps or workflow tools.
 
-They integrate Snapshot's primitives into their control loop, and the AI
-practitioners and MLOps teams running on top get faster scaling without touching
-Snapshot directly. Any controller or platform can integrate Snapshot through the
-Kubernetes API.
+Both drive Snapshot through the Kubernetes API. The model developers on top get
+faster deployment without touching it.
 
 ## Prerequisites
 
