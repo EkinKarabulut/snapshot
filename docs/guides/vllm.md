@@ -36,14 +36,14 @@ and then calls `pause_generation()` and `sleep()`. It writes
 it calls `wake_up()` and `resume_generation()`, runs another generation, and
 writes `vllm-restore-ready`.
 
-The Dockerfile starts from the official vLLM 0.28 image, which uses Ubuntu
-24.04 and is compatible with the current Snapshot restore bundle. It applies
+The Dockerfile starts from the official vLLM 0.27.1 image and installs the
+Ubuntu 24.04 glibc required by the current Snapshot restore bundle. It applies
 the placeholder container requirements and adds `app.py`.
 
 ### 2. Build the snapshot-ready image
 
 ```bash
-export VLLM_RUNTIME_IMAGE=vllm/vllm-openai:v0.28.0
+export VLLM_RUNTIME_IMAGE=vllm/vllm-openai:v0.27.1
 export VLLM_SNAPSHOT_IMAGE=<your-registry>/vllm-snapshot:<tag>
 
 docker build \
