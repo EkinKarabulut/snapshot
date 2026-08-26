@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-ARG VLLM_RUNTIME_IMAGE=vllm/vllm-openai:v0.27.1
+ARG VLLM_RUNTIME_IMAGE=vllm/vllm-openai:v0.28.0
 FROM ${VLLM_RUNTIME_IMAGE}
 
 ARG VLLM_RUNTIME_IMAGE
@@ -16,12 +16,6 @@ RUN set -eux; \
       echo "Snapshot requires x86_64" >&2; \
       exit 1; \
     fi; \
-    printf 'deb http://archive.ubuntu.com/ubuntu noble main universe\n' \
-      >/etc/apt/sources.list.d/snapshot-noble.list; \
-    apt-get update; \
-    apt-get install -y --no-install-recommends -t noble libc6 libc-bin; \
-    rm -f /etc/apt/sources.list.d/snapshot-noble.list; \
-    rm -rf /var/lib/apt/lists/*; \
     mkdir -p /checkpoints
 
 WORKDIR /app
