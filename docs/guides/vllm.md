@@ -40,6 +40,8 @@ generation, and writes `vllm-restore-ready`.
 The Dockerfile starts from the official vLLM 0.27.1 image and installs the
 Ubuntu 24.04 glibc required by the current Snapshot restore bundle. It creates
 `/snapshot-control` for lifecycle signals and adds `app.py`.
+`HF_HUB_DISABLE_XET=1` prevents the model downloader from leaving an open cache
+log that CRIU cannot reopen after restore.
 
 ### 2. Set the model and build the image
 
