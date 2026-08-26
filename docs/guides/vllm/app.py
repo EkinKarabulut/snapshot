@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import argparse
 import asyncio
 import os
 from pathlib import Path
@@ -10,8 +11,13 @@ from vllm.engine.arg_utils import AsyncEngineArgs
 from vllm.usage.usage_lib import UsageContext
 from vllm.v1.engine.async_llm import AsyncLLM
 
-MODEL = "Qwen/Qwen3-0.6B"
 CONTROL_DIR = Path(os.environ.get("SNAPSHOT_CONTROL_DIR", "/snapshot-control"))
+
+
+def parse_model() -> str:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("model")
+    return parser.parse_args().model
 
 
 async def generate_text(
@@ -34,10 +40,10 @@ async def generate_text(
     return text
 
 
-async def main() -> None:
+async def main(model: str) -> None:
     engine = AsyncLLM.from_engine_args(
         AsyncEngineArgs(
-            model=MODEL,
+            model=model,
             enable_sleep_mode=True,
         ),
         usage_context=UsageContext.LLM_CLASS,
@@ -80,5 +86,5 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(main(parse_model()))
     os._exit(0)
