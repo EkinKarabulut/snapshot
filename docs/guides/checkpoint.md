@@ -1,11 +1,11 @@
 # Checkpoint a replica
 
-Checkpointing captures an initialized replica's state as a snapshot artifact. There
+Checkpointing saves an initialized replica's state as a snapshot artifact. There
 are two ways to do it, with an important trade-off.
 
 | Method | What it does | Best for |
 |--------|--------------|----------|
-| **`PodSnapshot`** | Checkpoints a replica you are already running | The faster path overall — you initialize the first replica once and keep it serving. The trade-off is more orchestration: you bring the replica up, wait until it is ready, then trigger the capture. |
+| **`PodSnapshot`** | Checkpoints a replica you are already running | The faster path overall — you initialize the first replica once and keep it serving. The trade-off is more orchestration: you bring the replica up, wait until it is ready, then trigger the checkpoint. |
 | **`SnapshotJob`** | Runs a replica from a template, checkpoints it once ready, then deletes it | Self-contained, with less orchestration. Fits pipelines that pre-bake a snapshot and then bring up every replica — including the first — via [restore](restore.md). |
 
 These examples use `kubectl` to show the flow. In production, an integrating
@@ -21,7 +21,7 @@ API as part of its control loop.
 ## Option 1 — `PodSnapshot` (checkpoint a running replica)
 
 Point at a replica that is already up and serving. Create a `PodSnapshot` naming its
-pod and the container to capture:
+pod and the container to checkpoint:
 
 ```yaml
 apiVersion: nvidia.com/v1alpha1
@@ -46,13 +46,13 @@ kubectl wait --for=condition=Ready podsnapshot/vllm-snapshot \
 The operator binds a cluster-scoped `PodSnapshotContent` and records the artifact.
 Because the replica keeps running and serving, this is the faster path — the
 trade-off is that you own the orchestration of bringing it up and triggering the
-capture.
+checkpoint.
 
-## Option 2 — `SnapshotJob` (capture from a throwaway replica)
+## Option 2 — `SnapshotJob` (checkpoint a throwaway replica)
 
-`SnapshotJob` runs a replica from a pod template, checkpoints it once ready, then
-tears it down — leaving a `PodSnapshot` behind. There is no long-running replica to
-manage, which fits pipeline use cases.
+`SnapshotJob` runs a replica from a pod template, checkpoints it once ready, and
+completes from the resulting `PodSnapshot` — removing the source replica. There is
+no long-running replica to manage, which fits pipeline use cases.
 
 ```yaml
 apiVersion: nvidia.com/v1alpha1
@@ -69,7 +69,7 @@ spec:
       containers:
         - name: main
           image: <your-registry>/vllm-placeholder:<tag>
-          # ...the replica configuration to capture
+          # ...the replica configuration to checkpoint
 ```
 
 ```bash
@@ -82,7 +82,5 @@ kubectl get snapshotjob vllm-snapshot-job -n my-inference \
   -o jsonpath='{.status.podSnapshotName}'
 ```
 
-Because the captured replica is deleted, every serving replica — including the
+Because the source replica is deleted, every serving replica — including the
 first — is brought up via [restore](restore.md).
-
-<!-- TODO(eng): validate the PodSnapshot and SnapshotJob fields, the Ready/Completed conditions, and the lower-level snapshotctl path. -->
