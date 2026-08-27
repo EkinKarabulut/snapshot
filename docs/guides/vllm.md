@@ -153,42 +153,5 @@ readiness probe succeeds after `app.py` writes `ready-for-snapshot`.
 
 ## Next steps
 
-1. [Checkpoint the generated Pod](checkpoint.md).
-2. After the checkpoint is ready, scale the source Deployment to zero before
-   restoring on the same GPU:
-
-   ```bash
-   kubectl scale \
-     --namespace "$VLLM_NAMESPACE" \
-     deployment/vllm-source \
-     --replicas=0
-   ```
-
-3. [Restore a replica](restore.md).
-
-## Send a request after restore
-
-The example API demonstrates that the restored vLLM engine accepts new
-inference requests. It is not intended as a production serving API.
-
-After restoring the pod, forward its API port:
-
-```bash
-kubectl port-forward \
-  --namespace "$VLLM_NAMESPACE" \
-  pod/<restored-pod> \
-  8000:8000
-```
-
-In another terminal, send a prompt:
-
-```bash
-curl --fail --silent --show-error \
-  --request POST \
-  --header 'Content-Type: application/json' \
-  --data '{"prompt":"Reply with one word: working"}' \
-  http://127.0.0.1:8000/generate |
-  jq .
-```
-
-The response contains non-empty generated text.
+- [Checkpoint a replica](checkpoint.md)
+- [Restore a replica](restore.md)
