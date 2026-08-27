@@ -94,7 +94,7 @@ Set the namespace where the vLLM pod will run:
 export VLLM_NAMESPACE=<namespace>
 ```
 
-Use `pod.yaml` to deploy the image built in step 2:
+Use [`pod.yaml`](vllm/pod.yaml) to deploy the image built in step 2:
 
 ```bash
 kubectl set image \
