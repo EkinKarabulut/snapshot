@@ -41,7 +41,9 @@ generation to initialize vLLM, and then calls `pause_generation()` and
 container, it waits in standby until Snapshot injects the captured process.
 That process calls `wake_up()` and `resume_generation()`, runs another
 generation, starts an API, and writes `vllm-restore-ready` when the API is
-listening.
+listening. To validate the restored replica, send a `POST` request to
+`/generate` with a JSON body such as
+`{"prompt":"What is the capital of Italy?"}`.
 
 The Dockerfile starts from the official vLLM 0.27.1 image and installs the
 Ubuntu 24.04 glibc required by the current Snapshot restore bundle. It creates

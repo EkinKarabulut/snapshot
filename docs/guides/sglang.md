@@ -53,9 +53,9 @@ After restore, the captured process calls
 `Engine.resume_memory_occupation()` and
 `TokenizerManager.continue_generation()`. It runs another generation and
 starts an API on port 8000. It writes `sglang-restore-ready` only after the
-generation succeeds and the API is listening. Send a `POST` request to
-`/generate` with a JSON body such as `{"prompt":"What is the capital of Italy?"}`
-to run more inference through the restored engine.
+generation succeeds and the API is listening. To validate the restored replica,
+send a `POST` request to `/generate` with a JSON body such as
+`{"prompt":"What is the capital of Italy?"}`.
 
 The Dockerfile starts from the tested SGLang image, creates
 `/snapshot-control`, and adds `app.py`. The source and restore pods must use the
