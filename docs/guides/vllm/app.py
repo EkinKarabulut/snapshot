@@ -4,7 +4,11 @@
 import asyncio
 import os
 from pathlib import Path
+from uuid import uuid4
 
+import uvicorn
+from fastapi import FastAPI
+from pydantic import BaseModel, Field
 from vllm import SamplingParams
 from vllm.engine.arg_utils import AsyncEngineArgs
 from vllm.usage.usage_lib import UsageContext
@@ -12,6 +16,10 @@ from vllm.v1.engine.async_llm import AsyncLLM
 
 CONTROL_DIR = Path(os.environ.get("SNAPSHOT_CONTROL_DIR", "/snapshot-control"))
 MODEL = os.environ["SNAPSHOT_MODEL"]
+
+
+class GenerateRequest(BaseModel):
+    prompt: str = Field(min_length=1)
 
 
 async def generate_text(
@@ -32,6 +40,40 @@ async def generate_text(
     if not text:
         raise RuntimeError("vLLM produced empty output")
     return text
+
+
+async def serve_validation_api(engine: AsyncLLM, restored_text: str) -> None:
+    app = FastAPI()
+
+    @app.post("/generate")
+    async def generate(request: GenerateRequest) -> dict[str, str]:
+        text = await generate_text(
+            engine,
+            request.prompt,
+            f"validation-{uuid4().hex}",
+        )
+        return {"text": text}
+
+    server = uvicorn.Server(
+        uvicorn.Config(
+            app,
+            host="0.0.0.0",
+            port=8000,
+        )
+    )
+    server_task = asyncio.create_task(server.serve())
+    while not server.started:
+        if server_task.done():
+            await server_task
+            raise RuntimeError("validation API stopped before startup")
+        await asyncio.sleep(0.1)
+
+    CONTROL_DIR.joinpath("vllm-restore-ready").write_text(
+        restored_text + "\n",
+        encoding="utf-8",
+    )
+    print("vLLM validation API listening on port 8000", flush=True)
+    await server_task
 
 
 async def main() -> None:
@@ -70,13 +112,8 @@ async def main() -> None:
                 "Reply with one word: restored",
                 "snapshot-restore-check",
             )
-            CONTROL_DIR.joinpath("vllm-restore-ready").write_text(
-                text + "\n",
-                encoding="utf-8",
-            )
             print(f"vLLM restored output={text!r}", flush=True)
-            while True:
-                await asyncio.sleep(3600)
+            await serve_validation_api(engine, text)
         await asyncio.sleep(1)
 
 

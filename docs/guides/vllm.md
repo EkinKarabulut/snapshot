@@ -35,7 +35,8 @@ generation to initialize vLLM, and then calls `pause_generation()` and
 `ready-for-snapshot` only when the process is safe to checkpoint. In a restore
 container, it waits in standby until Snapshot injects the captured process.
 That process calls `wake_up()` and `resume_generation()`, runs another
-generation, and writes `vllm-restore-ready`.
+generation, starts a validation API, and writes `vllm-restore-ready` once the
+API is listening.
 
 The Dockerfile starts from the official vLLM 0.27.1 image and installs the
 Ubuntu 24.04 glibc required by the current Snapshot restore bundle. It creates
@@ -80,6 +81,34 @@ docker run --rm \
   "$VLLM_SNAPSHOT_IMAGE" \
   -c 'import pathlib; import vllm; assert pathlib.Path("/app/app.py").is_file()'
 ```
+
+### 3. Validate the restored vLLM
+
+This section exposes the restored vLLM only to validate that it accepts new
+inference requests. The example endpoint is not intended as a production
+serving API.
+
+After restoring a pod, forward its validation port:
+
+```bash
+kubectl port-forward \
+  --namespace <namespace> \
+  pod/<restored-pod> \
+  8000:8000
+```
+
+In another terminal, send a prompt:
+
+```bash
+curl --fail --silent --show-error \
+  --request POST \
+  --header 'Content-Type: application/json' \
+  --data '{"prompt":"Reply with one word: working"}' \
+  http://127.0.0.1:8000/generate |
+  jq .
+```
+
+The response must contain non-empty generated text.
 
 ## Next steps
 
