@@ -71,7 +71,7 @@ Before installing Snapshot, make sure the following are in place:
 - The [Helm](https://helm.sh/docs/intro/install) CLI
 - A cluster that permits privileged pods for the node agent — see [Security](docs/operations/security.md)
 
-<!-- TODO(eng): open items for the team to validate (feed Support matrix / Limitations):
+<!-- TODO(eng): open items for the team to validate (feed Limitations):
      - minimum Kubernetes version (any non-EOL release, or a specific floor?)
      - minimum GPU Operator version (e2e preflight uses 26.3.0+)
      - Helm floor: Ron confirmed Helm 4 — confirm whether Helm 3 also works
@@ -144,7 +144,7 @@ Current limitations:
 - Single-GPU workloads only.
 - x86_64 nodes only.
 - vGPU is not supported.
-- Runs only on NVIDIA GPUs supported by the required CUDA driver — see the [Support matrix](docs/reference/support-matrix.md).
+- Runs only on NVIDIA GPUs supported by the required CUDA driver.
 
 Multi-GPU and Arm support are on the roadmap.
 
@@ -158,7 +158,6 @@ Multi-GPU and Arm support are on the roadmap.
 
 - [API](docs/reference/api.md) — `PodSnapshot`, `PodSnapshotContent`, `SnapshotJob`, and the `restore-from` annotation.
 - [Architecture](docs/reference/architecture.md) — operator and node-agent design, and the checkpoint/restore internals.
-- [Support matrix](docs/reference/support-matrix.md) — supported frameworks, GPUs, drivers, and Kubernetes versions.
 - [CLI (`snapshotctl`)](docs/reference/cli.md) — lower-level checkpoint/restore from a pod manifest.
 
 **Operations**
