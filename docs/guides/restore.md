@@ -36,7 +36,9 @@ kubectl get pod vllm-restored -n my-inference -w
 ```
 
 The node agent adds a `snapshot/Restored` condition to the pod once the restore
-completes — watch it, along with pod readiness, to confirm.
+completes — watch it, along with pod readiness, to confirm. If the restored
+workload serves an API, sending a request is a good end-to-end check that it
+resumed correctly.
 
 The restored process resumes from the checkpointed state, skipping model loading
 and warm-up. In practice, higher-level systems add this annotation to the pods

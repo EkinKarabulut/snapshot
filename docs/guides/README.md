@@ -1,14 +1,16 @@
 # Usage guides
 
-Using Snapshot is a two-step model:
+Using Snapshot is a three-stage flow:
 
-1. **Build a snapshot-ready image** for the inference server. Snapshot wraps the
-   normal runtime image with restore tooling (CRIU, `cuda-checkpoint`, `nsrestore`)
-   to produce a *placeholder* image that the replicas run.
-2. **Drive checkpoint and restore through Kubernetes.** Checkpoint a replica with a
-   `PodSnapshot` or a `SnapshotJob`, and add the `nvidia.com/restore-from`
-   annotation to a new pod to restore it. This Kubernetes flow is the same for every
-   server — only the replica image differs.
+1. **Build and deploy** a snapshot-ready replica for the inference framework. Start
+   from the framework's runtime image, add a small program that cooperates with
+   Snapshot's checkpoint/restore lifecycle, and deploy it. Snapshot's agent injects
+   the restore tooling at runtime.
+2. **Checkpoint** the running replica — with a `PodSnapshot` or a `SnapshotJob`.
+3. **Restore** into new pods — with the `nvidia.com/restore-from` annotation.
+
+Stages 2 and 3 are the same for every framework; only the image and deployment in
+stage 1 differ.
 
 > [!NOTE]
 > These guides use `kubectl` to show the resources and the flow. In production, a
@@ -16,15 +18,20 @@ Using Snapshot is a two-step model:
 > API as part of its own control loop — `kubectl` here is just for illustration and
 > for trying things out by hand.
 
-## Step 1 — build a snapshot-ready image
+## 1. Build and deploy
+
+Per inference framework:
 
 - [vLLM](vllm.md)
 - [SGLang](sglang.md)
 - [TensorRT-LLM](tensorrt-llm.md)
 
-## Step 2 — checkpoint and restore
+## 2. Checkpoint
 
 - [Checkpoint a replica](checkpoint.md)
+
+## 3. Restore
+
 - [Restore a replica](restore.md)
 
 See [Installation](../operations/install.md) for cluster prerequisites and the

@@ -1,12 +1,13 @@
-# Build a snapshot-ready SGLang image
+# Build and deploy an SGLang replica
 
 _Documentation for this page is in progress._
 
-The build follows the same flow as [vLLM](vllm.md): build the `placeholder` target
-with `BASE_IMAGE` set to the SGLang runtime image, then push it to a registry the
-cluster can pull from.
+The flow mirrors the [vLLM example](vllm.md): start from the SGLang runtime image,
+add a small program that cooperates with Snapshot's checkpoint/restore lifecycle
+(pause and free the GPU before checkpoint, resume after restore), then deploy the
+source pod.
 
-<!-- TODO(eng): document the SGLang base image, any server-specific replica settings, and confirm SGLang support scope. -->
+<!-- TODO(eng): provide the SGLang app, Dockerfile, and pod manifest; document the base image and SGLang-specific pause/resume; confirm support scope. -->
 
 ## Next steps
 
