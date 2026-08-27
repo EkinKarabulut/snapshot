@@ -75,6 +75,7 @@ Verify that the packaged image contains vLLM and `app.py`:
 
 ```bash
 docker run --rm \
+  --platform linux/amd64 \
   --entrypoint python3 \
   "$VLLM_SNAPSHOT_IMAGE" \
   -c 'import pathlib; import vllm; assert pathlib.Path("/app/app.py").is_file()'
