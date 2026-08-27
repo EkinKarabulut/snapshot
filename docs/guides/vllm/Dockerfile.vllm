@@ -5,20 +5,14 @@ ARG VLLM_RUNTIME_IMAGE=vllm/vllm-openai:v0.27.1
 FROM ${VLLM_RUNTIME_IMAGE}
 
 ARG TARGETARCH=amd64
-ARG VLLM_MODEL
 
-ENV SNAPSHOT_MODEL=${VLLM_MODEL} \
-    HF_HUB_DISABLE_XET=1
+ENV HF_HUB_DISABLE_XET=1
 
 USER root
 
 RUN set -eux; \
     if [ "${TARGETARCH}" != "amd64" ]; then \
       echo "Snapshot requires x86_64" >&2; \
-      exit 1; \
-    fi; \
-    if [ -z "${VLLM_MODEL}" ]; then \
-      echo "VLLM_MODEL is required" >&2; \
       exit 1; \
     fi; \
     printf 'deb http://archive.ubuntu.com/ubuntu noble main universe\n' \

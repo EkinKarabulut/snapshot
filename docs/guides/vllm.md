@@ -8,8 +8,8 @@ tooling at runtime.
 ## Build
 
 Start with the official vLLM image, which includes vLLM and its runtime
-dependencies. Select the model when building the Snapshot-ready image. Add one
-program that prepares vLLM for checkpoint and resumes it after restore.
+dependencies. Add one program that prepares vLLM for checkpoint and resumes it
+after restore. Select the model when deploying the source pod.
 
 ### 1. Download the example files
 
@@ -34,7 +34,7 @@ curl --fail --location \
   https://raw.githubusercontent.com/ai-dynamo/snapshot/main/docs/guides/vllm/pod.yaml
 ```
 
-The program loads the model selected when building the image, runs one
+The program loads the model selected in `pod.yaml`, runs one
 generation to initialize vLLM, and then calls `pause_generation()` and
 `sleep()`. It writes
 `ready-for-snapshot` only when the process is safe to checkpoint. In a restore
@@ -51,17 +51,15 @@ log that CRIU cannot reopen after restore.
 The source and restore pods must mount the Snapshot control volume at
 `/snapshot-control`.
 
-### 2. Set the model and build the image
+### 2. Build the image
 
 ```bash
 export VLLM_RUNTIME_IMAGE=vllm/vllm-openai:v0.27.1
 export VLLM_SNAPSHOT_IMAGE=<registry>/vllm-snapshot:<tag>
-export VLLM_MODEL=Qwen/Qwen3-0.6B
 
 docker build \
   --platform linux/amd64 \
   --build-arg VLLM_RUNTIME_IMAGE="$VLLM_RUNTIME_IMAGE" \
-  --build-arg VLLM_MODEL="$VLLM_MODEL" \
   -f Dockerfile.vllm \
   -t "$VLLM_SNAPSHOT_IMAGE" .
 
@@ -71,10 +69,6 @@ docker push "$VLLM_SNAPSHOT_IMAGE"
 The `docker push` command uploads the newly built image to the registry named
 in `$VLLM_SNAPSHOT_IMAGE`. Step 3 deploys that image as the source pod. Use the
 same full image name and tag for restored pods.
-
-Other model values include `TinyLlama/TinyLlama-1.1B-Chat-v1.0` or a mounted
-model path such as `/models/Qwen3-0.6B`. A mounted path must be available to
-both the source and restored containers.
 
 Verify that the packaged image contains vLLM and `app.py`:
 
@@ -93,6 +87,19 @@ Set the namespace where the vLLM pod will run:
 ```bash
 export VLLM_NAMESPACE=<namespace>
 ```
+
+Set the model through the `SNAPSHOT_MODEL` environment variable in
+[`pod.yaml`](vllm/pod.yaml):
+
+```yaml
+env:
+  - name: SNAPSHOT_MODEL
+    value: Qwen/Qwen3-0.6B
+```
+
+Other values include `TinyLlama/TinyLlama-1.1B-Chat-v1.0` or a mounted model
+path such as `/models/Qwen3-0.6B`. A mounted path must be available to both the
+source and restored containers.
 
 Use [`pod.yaml`](vllm/pod.yaml) to deploy the image built in step 2:
 
