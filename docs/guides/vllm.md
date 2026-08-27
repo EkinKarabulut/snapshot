@@ -105,6 +105,13 @@ Other values include `TinyLlama/TinyLlama-1.1B-Chat-v1.0` or a mounted model
 path such as `/models/Qwen3-0.6B`. A mounted path must be available to both the
 source and restored containers.
 
+> [!NOTE]
+> This example runs vLLM directly through `AsyncLLM` rather than `vllm serve`, so
+> the standard `vllm serve` command-line arguments do not apply. The model is
+> selected with `SNAPSHOT_MODEL`, and other runtime settings are supplied through
+> vLLM's [environment variables](https://docs.vllm.ai/en/v0.27.1/configuration/env_vars/)
+> set on the pod.
+
 Use [`pod.yaml`](vllm/pod.yaml) to deploy the image built in step 2:
 
 ```bash
