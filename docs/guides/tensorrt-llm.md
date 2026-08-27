@@ -95,6 +95,7 @@ Set the namespace where the TensorRT-LLM pod will run:
 
 ```bash
 export TENSORRT_LLM_NAMESPACE=<namespace>
+kubectl get namespace "$TENSORRT_LLM_NAMESPACE"
 ```
 
 Set a model supported by the selected TensorRT-LLM image through the
