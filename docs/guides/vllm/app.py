@@ -45,6 +45,11 @@ async def generate_text(
 async def serve_validation_api(engine: AsyncLLM, restored_text: str) -> None:
     app = FastAPI()
 
+    @app.get("/health")
+    async def health() -> dict[str, str]:
+        await engine.check_health()
+        return {"status": "ok"}
+
     @app.post("/generate")
     async def generate(request: GenerateRequest) -> dict[str, str]:
         text = await generate_text(
