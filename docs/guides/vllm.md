@@ -7,9 +7,9 @@ tooling at runtime.
 
 ## Build
 
-Start with a vLLM image that already contains the model runtime and Python
-package. Add one program that prepares vLLM for checkpoint and resumes it after
-restore.
+Start with the official vLLM image, which includes vLLM and its runtime
+dependencies. Select the model when building the Snapshot-ready image. Add one
+program that prepares vLLM for checkpoint and resumes it after restore.
 
 ### 1. Download the example files
 
