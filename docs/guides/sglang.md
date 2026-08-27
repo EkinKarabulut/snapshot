@@ -98,6 +98,7 @@ Set the namespace where the SGLang pod will run:
 
 ```bash
 export SGLANG_NAMESPACE=<namespace>
+kubectl get namespace "$SGLANG_NAMESPACE"
 ```
 
 Set the model through the `SNAPSHOT_MODEL` environment variable in both the
