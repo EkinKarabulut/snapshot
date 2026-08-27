@@ -63,6 +63,10 @@ docker build \
 docker push "$VLLM_SNAPSHOT_IMAGE"
 ```
 
+The `docker push` command uploads the newly built image to the registry named
+in `$VLLM_SNAPSHOT_IMAGE`. In both next-step guides, use that full image name
+and tag as `spec.containers[].image` for the source and restore pods.
+
 Other model values include `TinyLlama/TinyLlama-1.1B-Chat-v1.0` or a mounted
 model path such as `/models/Qwen3-0.6B`. A mounted path must be available to
 both the source and restored containers.
@@ -77,8 +81,6 @@ docker run --rm \
 ```
 
 ## Next steps
-
-Use `$VLLM_SNAPSHOT_IMAGE` for the source and restored containers.
 
 - [Checkpoint a replica](checkpoint.md)
 - [Restore a replica](restore.md)
