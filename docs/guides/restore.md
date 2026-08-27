@@ -27,21 +27,7 @@ spec:
   containers:
     - name: main
       image: <registry>/vllm-placeholder:<tag>
-      command: ["sleep", "infinity"]
-      env:
-        - name: SNAPSHOT_CONTROL_DIR
-          value: /snapshot-control
-      readinessProbe:
-        exec:
-          command: ["cat", "/snapshot-control/vllm-restore-ready"]
-      volumeMounts:
-        - name: snapshot-control
-          mountPath: /snapshot-control
-          subPath: main
       # ...the replica configuration that was checkpointed
-  volumes:
-    - name: snapshot-control
-      emptyDir: {}
 ```
 
 ```bash
@@ -51,9 +37,6 @@ kubectl get pod vllm-restored -n my-inference -w
 
 The node agent adds a `snapshot/Restored` condition to the pod once the restore
 completes — watch it, along with pod readiness, to confirm.
-
-The placeholder command remains idle while the node agent injects the captured
-process, avoiding a second model initialization during restore.
 
 The restored process resumes from the checkpointed state, skipping model loading
 and warm-up. In practice, higher-level systems add this annotation to the pods

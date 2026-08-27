@@ -43,8 +43,8 @@ Ubuntu 24.04 glibc required by the current Snapshot restore bundle, then adds
 `HF_HUB_DISABLE_XET=1` prevents the model downloader from leaving an open cache
 log that CRIU cannot reopen after restore.
 
-The source and restore pods mount the Snapshot control volume at
-`/snapshot-control`, as shown in the checkpoint and restore guides.
+The source and restore pods must mount the Snapshot control volume at
+`/snapshot-control`.
 
 ### 2. Set the model and build the image
 
