@@ -43,6 +43,9 @@ spec:
               value: "0"
             - name: UCX_TLS
               value: tcp,self
+          ports:
+            - name: api
+              containerPort: 8000
           resources:
             limits:
               nvidia.com/gpu: "1"

@@ -85,6 +85,9 @@ spec:
               value: "0"
             - name: TORCH_NCCL_DUMP_ON_TIMEOUT
               value: "0"
+          ports:
+            - name: api
+              containerPort: 8000
           resources:
             limits:
               nvidia.com/gpu: "1"

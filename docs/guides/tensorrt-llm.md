@@ -45,8 +45,11 @@ point.
 
 TensorRT-LLM does not use a framework pause or sleep call in this example. The
 model and initialized CUDA state remain resident. After restore, the captured
-process calls `LLM.generate()` again and writes `trtllm-restore-ready` only when
-that generation succeeds.
+process calls `LLM.generate()` again and starts an API on port 8000. It writes
+`trtllm-restore-ready` only after the generation succeeds and the API is
+listening. Send a `POST` request to `/generate` with a JSON body such as
+`{"prompt":"What is the capital of Italy?"}` to run more inference through the
+restored engine.
 
 The Dockerfile starts from the tested TensorRT-LLM 1.3.0 release candidate
 image, creates `/snapshot-control`, and adds `app.py`.

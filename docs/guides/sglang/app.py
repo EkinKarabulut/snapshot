@@ -2,8 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import argparse
+import json
 import os
 import time
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any
 
@@ -71,6 +73,43 @@ def continue_generation(engine: Any) -> None:
     )
 
 
+def serve_api(engine: Any, restored_text: str) -> None:
+    class GenerateHandler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            if self.path != "/generate":
+                self.send_error(404)
+                return
+
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                payload = json.loads(self.rfile.read(length))
+                prompt = payload["prompt"]
+                if not isinstance(prompt, str) or not prompt.strip():
+                    raise ValueError("prompt must be a non-empty string")
+                text = generate_text(engine, prompt)
+            except (json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
+                self.send_error(400, str(error))
+                return
+            except Exception as error:
+                self.send_error(500, str(error))
+                return
+
+            body = json.dumps({"text": text}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    server = HTTPServer(("0.0.0.0", 8000), GenerateHandler)
+    CONTROL_DIR.joinpath("sglang-restore-ready").write_text(
+        restored_text + "\n",
+        encoding="utf-8",
+    )
+    print("SGLang API listening on port 8000", flush=True)
+    server.serve_forever()
+
+
 def main() -> None:
     if os.environ.get("DYN_SNAPSHOT_RESTORE_STANDBY") == "1":
         while True:
@@ -110,13 +149,8 @@ def main() -> None:
         os.environ.pop("HF_HUB_OFFLINE", None)
 
         text = generate_text(engine, "The capital city of Germany is")
-        CONTROL_DIR.joinpath("sglang-restore-ready").write_text(
-            text + "\n",
-            encoding="utf-8",
-        )
         print(f"SGLang restored output={text!r}", flush=True)
-        while True:
-            time.sleep(3600)
+        serve_api(engine, text)
     finally:
         engine.shutdown()
 
