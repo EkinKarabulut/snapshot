@@ -96,7 +96,7 @@ helm install snapshot oci://ghcr.io/ai-dynamo/snapshot/snapshot \
 By default the chart provisions its own RWX checkpoint volume, shared by every
 checkpoint. See [Storage](docs/operations/storage.md) for the volume model and options
 (including reusing an existing claim), and [Installation](docs/operations/install.md)
-for runtime and uninstall.
+for install and uninstall.
 
 ### From source
 
@@ -149,7 +149,7 @@ Multi-GPU and Arm support are on the roadmap.
 
 **Operations**
 
-- [Installation](docs/operations/install.md) — Helm install, runtime, and uninstall.
+- [Installation](docs/operations/install.md) — Helm install and uninstall.
 - [Storage](docs/operations/storage.md) — the shared checkpoint volume and how to configure it.
 - [Troubleshooting](docs/operations/troubleshooting.md) — common failures and where to look.
 - [Security](docs/operations/security.md) — the privileged agent, seccomp, and Pod Security.

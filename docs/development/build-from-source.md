@@ -60,7 +60,7 @@ helm install snapshot ./charts/snapshot \
   --set image.agent.tag=<tag>
 ```
 
-See [Installation](../operations/install.md) for storage, runtime, and uninstall options.
+See [Installation](../operations/install.md) for storage and uninstall options.
 
 ## Development workflow
 
