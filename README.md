@@ -71,15 +71,6 @@ Before installing Snapshot, make sure the following are in place:
 - The [Helm](https://helm.sh/docs/intro/install) CLI
 - A cluster that permits privileged pods for the node agent — see [Security](docs/operations/security.md)
 
-<!-- TODO(eng): open items for the team to validate (feed Limitations):
-     - minimum Kubernetes version (any non-EOL release, or a specific floor?)
-     - minimum GPU Operator version (e2e preflight uses 26.3.0+)
-     - Helm floor: Ron confirmed Helm 4 — confirm whether Helm 3 also works
-     - CRI-O / OpenShift: whether users must set runtime.type=crio (from Dynamo docs; unconfirmed here)
-     - VM support (vGPU is unsupported per Oz 2026-08-20)
-     - supported frameworks: vLLM / SGLang today; TensorRT-LLM experimental single-GPU only (Dynamo v1.3.1; validate for this repo) -->
-
-
 ## Installation
 
 Snapshot installs as a single per-cluster Helm release — a control-plane operator
@@ -111,8 +102,6 @@ for RBAC, runtime, and uninstall.
 
 Follow the instructions in [Building from source](docs/development/build-from-source.md).
 
-<!-- TODO(eng): confirm the install namespace convention and that oci://ghcr.io/ai-dynamo/snapshot/snapshot at <VERSION> matches the first published alpha release; note whether a from-source install needs image tags before appVersion images are published. -->
-
 ## How to use it
 
 Snapshot is driven entirely through Kubernetes resources, with standard tooling.
@@ -134,8 +123,6 @@ checkpoint/restore lifecycle.
 
 Once Snapshot is installed, follow the **[usage guides](docs/guides/README.md)**
 to checkpoint and restore a pod.
-
-<!-- TODO(eng): validate the SnapshotJob role wording — CRD added recently (#65). -->
 
 ## Limitations
 

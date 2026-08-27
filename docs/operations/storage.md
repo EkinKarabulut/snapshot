@@ -54,5 +54,3 @@ survive an uninstall.
 
 `storage.type` currently supports `pvc`. Object-storage backends (`s3`, `oci`) are
 reserved in the chart for future use and are not supported today.
-
-<!-- TODO(eng): add sizing guidance, cleanup/GC of old snapshots, and the object-storage roadmap. -->

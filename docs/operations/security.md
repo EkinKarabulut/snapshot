@@ -17,5 +17,3 @@ apply the `privileged` level (or an equivalent exception) to that namespace.
 
 CRIU requires a seccomp profile to perform checkpoint and restore. The Helm chart
 installs the profile the agent needs.
-
-<!-- TODO(eng): document the seccomp profile details, the RBAC scope (cluster vs namespace), image provenance/signing, and any additional hardening guidance. -->

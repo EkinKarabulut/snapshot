@@ -32,5 +32,3 @@ kubectl get pvc -n <ns>
 The `snapshot-agent` runs privileged with `hostPID`, `hostIPC`, and `hostNetwork`.
 If the namespace enforces a restrictive Pod Security level, the agent — or a
 restore pod — can be rejected. See [Security](security.md).
-
-<!-- TODO(eng): expand with real failure modes and messages (CRIU / cuda-checkpoint errors, RWX PVC access, driver/runtime mismatches). The Dynamo snapshot doc's troubleshooting section is a good source. -->

@@ -40,5 +40,3 @@ helm uninstall snapshot --namespace snapshot
 
 Chart-created checkpoint volumes are retained on uninstall, so checkpoints survive
 removal — see [Storage](storage.md#retention).
-
-<!-- TODO(eng): document the RBAC scope the chart creates (cluster vs namespace roles), container-runtime requirements (containerd/CRI-O, any runtimeClass or CRI-O runtime.type setting), the Pod Security level the agent namespace needs (see Security), and the Helm version floor. -->

@@ -16,8 +16,6 @@ In addition to the [runtime prerequisites](../../README.md#prerequisites), the b
 The node agent is **x86_64 (amd64) only** — `cuda-checkpoint` ships no other
 architecture — so its image builds for `linux/amd64`.
 
-<!-- TODO(eng): pin the exact Go version and any other build-tool requirements. -->
-
 ## 1. Clone the repository
 
 ```bash
@@ -47,8 +45,6 @@ Push both images to a registry the cluster can pull from:
 docker push <registry>/agent:<tag>
 docker push <registry>/operator:<tag>
 ```
-
-<!-- TODO(eng): confirm the supported push path (docker push vs buildx --push via DOCKER_BUILD_ARGS) and whether a make target exists. -->
 
 ## 4. Install the chart against the built images
 
