@@ -1,30 +1,167 @@
 # Build a snapshot-ready vLLM image
 
 Snapshot restores a replica by injecting its captured state into a *placeholder*
-image: the normal vLLM runtime image wrapped with the restore tooling (CRIU,
-`cuda-checkpoint`, `nsrestore`). Build it once and run vLLM replicas from it.
+image: a vLLM runtime image prepared with the application and
+container layout Snapshot expects. The Snapshot agent injects the restore
+tooling at runtime.
 
 ## Build
 
-From the `agent/` directory, build the `placeholder` target against the vLLM
-runtime image and push it to a registry the cluster can pull from:
+Start with the official vLLM image, which includes vLLM and its runtime
+dependencies. Add one program that prepares vLLM for checkpoint and resumes it
+after restore. Select the model when deploying the source pod.
+
+### 1. Download the example files
+
+Download [`app.py`](vllm/app.py),
+[`Dockerfile.vllm`](vllm/Dockerfile.vllm), and
+[`pod.yaml`](vllm/pod.yaml) from the repository:
 
 ```bash
-docker build \
-  --platform linux/amd64 \
-  --target placeholder \
-  --build-context api=../api \
-  --build-arg BASE_IMAGE=<vllm-runtime-image> \
-  -t <registry>/vllm-placeholder:<tag> .
+mkdir -p vllm-snapshot-image
+cd vllm-snapshot-image
 
-docker push <registry>/vllm-placeholder:<tag>
+curl --fail --location \
+  --output app.py \
+  https://raw.githubusercontent.com/ai-dynamo/snapshot/main/docs/guides/vllm/app.py
+
+curl --fail --location \
+  --output Dockerfile.vllm \
+  https://raw.githubusercontent.com/ai-dynamo/snapshot/main/docs/guides/vllm/Dockerfile.vllm
+
+curl --fail --location \
+  --output pod.yaml \
+  https://raw.githubusercontent.com/ai-dynamo/snapshot/main/docs/guides/vllm/pod.yaml
 ```
 
-Use this image for the replica containers to checkpoint and restore.
+The program loads the model selected in `pod.yaml`, runs one
+generation to initialize vLLM, and then calls `pause_generation()` and
+`sleep()`. It writes
+`ready-for-snapshot` only when the process is safe to checkpoint. In a restore
+container, it waits in standby until Snapshot injects the captured process.
+That process calls `wake_up()` and `resume_generation()`, runs another
+generation, starts an API, and writes `vllm-restore-ready` when the API is
+listening.
 
-<!-- TODO(eng): confirm the canonical build invocation (make target vs raw docker build), vLLM base-image guidance, and any vLLM-specific entrypoint/args needed for a checkpointable replica. -->
+The Dockerfile starts from the official vLLM 0.27.1 image and installs the
+Ubuntu 24.04 glibc required by the current Snapshot restore bundle. It creates
+`/snapshot-control` and adds `app.py`.
+`HF_HUB_DISABLE_XET=1` prevents the model downloader from leaving an open cache
+log that CRIU cannot reopen after restore.
+
+The source and restore pods must mount the Snapshot control volume at
+`/snapshot-control`.
+
+### 2. Build the image
+
+```bash
+export VLLM_RUNTIME_IMAGE=vllm/vllm-openai:v0.27.1
+export VLLM_SNAPSHOT_IMAGE=<registry>/vllm-snapshot:<tag>
+
+docker build \
+  --platform linux/amd64 \
+  --build-arg VLLM_RUNTIME_IMAGE="$VLLM_RUNTIME_IMAGE" \
+  -f Dockerfile.vllm \
+  -t "$VLLM_SNAPSHOT_IMAGE" .
+
+docker push "$VLLM_SNAPSHOT_IMAGE"
+```
+
+The `docker push` command uploads the newly built image to the registry named
+in `$VLLM_SNAPSHOT_IMAGE`. Step 3 deploys that image as the source pod. Use the
+same full image name and tag for restored pods.
+
+Verify that the packaged image contains vLLM and `app.py`:
+
+```bash
+docker run --rm \
+  --platform linux/amd64 \
+  --entrypoint python3 \
+  "$VLLM_SNAPSHOT_IMAGE" \
+  -c 'import pathlib; import vllm; assert pathlib.Path("/app/app.py").is_file()'
+```
+
+The command produces no output when both vLLM and `/app/app.py` are present.
+Any failure prints an error and returns a non-zero exit status.
+
+### 3. Deploy the vLLM pod
+
+Set the namespace where the vLLM pod will run:
+
+```bash
+export VLLM_NAMESPACE=<namespace>
+```
+
+Set the model through the `SNAPSHOT_MODEL` environment variable in
+[`pod.yaml`](vllm/pod.yaml):
+
+```yaml
+env:
+  - name: SNAPSHOT_MODEL
+    value: Qwen/Qwen3-0.6B
+```
+
+Other values include `TinyLlama/TinyLlama-1.1B-Chat-v1.0` or a mounted model
+path such as `/models/Qwen3-0.6B`. A mounted path must be available to both the
+source and restored containers.
+
+Use [`pod.yaml`](vllm/pod.yaml) to deploy the image built in step 2:
+
+```bash
+kubectl set image \
+  --local \
+  --filename pod.yaml \
+  main="$VLLM_SNAPSHOT_IMAGE" \
+  --output yaml |
+  kubectl apply \
+    --namespace "$VLLM_NAMESPACE" \
+    --filename -
+```
+
+The command replaces the example image value in `pod.yaml` with
+`$VLLM_SNAPSHOT_IMAGE` before creating the pod. It does not modify the local
+file.
+
+Wait until vLLM finishes initialization and becomes safe to checkpoint:
+
+```bash
+kubectl wait \
+  --namespace "$VLLM_NAMESPACE" \
+  --for=condition=Ready \
+  pod/vllm-source \
+  --timeout=30m
+```
+
+The readiness probe succeeds after `app.py` writes `ready-for-snapshot`.
 
 ## Next steps
 
 - [Checkpoint a replica](checkpoint.md)
 - [Restore a replica](restore.md)
+
+## Send a request after restore
+
+The example API demonstrates that the restored vLLM engine accepts new
+inference requests. It is not intended as a production serving API.
+
+After restoring the pod, forward its API port:
+
+```bash
+kubectl port-forward \
+  --namespace "$VLLM_NAMESPACE" \
+  pod/<restored-pod> \
+  8000:8000
+```
+
+In another terminal, send a prompt:
+
+```bash
+curl --fail --silent --show-error \
+  --request POST \
+  --header 'Content-Type: application/json' \
+  --data '{"prompt":"Reply with one word: working"}' \
+  http://127.0.0.1:8000/generate |
+  jq .
+```
+
+The response contains non-empty generated text.
