@@ -132,7 +132,7 @@ and `cuda-checkpoint` work; see [Architecture](docs/reference/architecture.md) t
 The [API reference](docs/reference/api.md) has full field-level detail and the
 checkpoint/restore lifecycle.
 
-Once Snapshot is installed, follow the **[Quickstart](docs/quickstart.md)**
+Once Snapshot is installed, follow the **[usage guides](docs/guides/README.md)**
 to checkpoint and restore a pod.
 
 <!-- TODO(eng): validate the SnapshotJob role wording — CRD added recently (#65). -->
@@ -152,7 +152,6 @@ Multi-GPU and Arm support are on the roadmap.
 
 **Get started**
 
-- [Quickstart](docs/quickstart.md) — install Snapshot and checkpoint/restore a replica end to end.
 - [Usage guides](docs/guides/README.md) — build a snapshot-ready image per server, then checkpoint and restore.
 
 **Reference**
