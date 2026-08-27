@@ -80,6 +80,9 @@ docker run --rm \
   -c 'import pathlib; import vllm; assert pathlib.Path("/app/app.py").is_file()'
 ```
 
+The command produces no output when both vLLM and `/app/app.py` are present.
+Any failure prints an error and returns a non-zero exit status.
+
 ### 3. Deploy the vLLM pod
 
 Set the namespace where the vLLM pod will run:
