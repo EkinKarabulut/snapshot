@@ -118,6 +118,13 @@ The example configures a context length of 10240 tokens for a 24 GiB NVIDIA A10
 GPU. Reduce `SGLANG_CONTEXT_LENGTH` for a smaller GPU or increase it only after
 validating the resulting memory use.
 
+> [!NOTE]
+> This example runs SGLang directly through `sglang.Engine` rather than
+> `sglang.launch_server`, so the standard server's command-line arguments do not
+> apply. The model is selected with `SNAPSHOT_MODEL`, and other runtime settings
+> are supplied through SGLang's [environment variables](https://docs.sglang.ai/references/environment_variables.html)
+> set in the Deployment's Pod template.
+
 Create the persistent model cache:
 
 ```bash

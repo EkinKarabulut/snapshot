@@ -115,6 +115,13 @@ The example uses one GPU, the PyTorch backend, and a maximum sequence length of
 512 tokens. Revalidate checkpoint and restore before changing the model,
 TensorRT-LLM image, GPU count, backend, or engine settings.
 
+> [!NOTE]
+> This example runs TensorRT-LLM through the `LLM` API rather than `trtllm-serve`,
+> so the standard `trtllm-serve` command-line arguments do not apply. The model is
+> selected with `SNAPSHOT_MODEL`, and other engine settings are configured on the
+> [`LLM` API](https://nvidia.github.io/TensorRT-LLM/llm-api/reference.html) in
+> `app.py`.
+
 Use [`deployment.yaml`](tensorrt-llm/deployment.yaml) to deploy the image built
 in step 2:
 
