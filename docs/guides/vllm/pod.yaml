@@ -26,6 +26,9 @@ spec:
           value: Qwen/Qwen3-0.6B
         - name: SNAPSHOT_CONTROL_DIR
           value: /snapshot-control
+      ports:
+        - name: api
+          containerPort: 8000
       resources:
         limits:
           nvidia.com/gpu: "1"
