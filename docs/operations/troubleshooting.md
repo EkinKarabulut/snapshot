@@ -5,7 +5,7 @@ Common issues when running Snapshot, and where to look.
 ## A checkpoint never becomes Ready
 
 A `PodSnapshot` becomes Ready only after the `snapshot-agent` confirms the
-checkpoint contents — a completed capture is not enough on its own. Check the
+checkpoint contents — writing the checkpoint is not enough on its own. Check the
 status and the agent logs:
 
 ```bash

@@ -77,7 +77,7 @@ Before installing Snapshot, make sure the following are in place:
      - Helm floor: Ron confirmed Helm 4 — confirm whether Helm 3 also works
      - CRI-O / OpenShift: whether users must set runtime.type=crio (from Dynamo docs; unconfirmed here)
      - VM support (vGPU is unsupported per Oz 2026-08-20)
-     - supported backends: vLLM / SGLang today; TensorRT-LLM experimental single-GPU only (Dynamo v1.3.1; validate for this repo) -->
+     - supported frameworks: vLLM / SGLang today; TensorRT-LLM experimental single-GPU only (Dynamo v1.3.1; validate for this repo) -->
 
 
 ## Installation
@@ -89,7 +89,7 @@ namespace, and run GPU workloads in separate namespaces.
 Snapshot can be installed:
 
 - **From a release** (recommended)
-- **From source** (build it yourself)
+- **From source** (build the images and install locally)
 
 ### From a release
 
@@ -103,7 +103,7 @@ helm install snapshot oci://ghcr.io/ai-dynamo/snapshot/snapshot \
 ```
 
 By default the chart provisions its own RWX checkpoint volume, shared by every
-snapshot. See [Storage](docs/operations/storage.md) for the model and options
+checkpoint. See [Storage](docs/operations/storage.md) for the volume model and options
 (including reusing an existing claim), and [Installation](docs/operations/install.md)
 for RBAC, runtime, and uninstall.
 
@@ -128,8 +128,8 @@ primitives into their own control loop.
 | `nvidia.com/restore-from` | Namespaced | Pod annotation that triggers a restore from a named `PodSnapshot` in the same namespace. |
 
 Under the hood, a control-plane operator and a per-node agent perform the CRIU
-and `cuda-checkpoint` work; see [Architecture](docs/reference/architecture.md) to dive in.
-The [API reference](docs/reference/api.md) has full field-level detail and the
+and `cuda-checkpoint` work; see [Architecture](docs/reference/architecture.md).
+The [API reference](docs/reference/api.md) covers the resources and the
 checkpoint/restore lifecycle.
 
 Once Snapshot is installed, follow the **[usage guides](docs/guides/README.md)**
@@ -152,13 +152,13 @@ Multi-GPU and Arm support are on the roadmap.
 
 **Get started**
 
-- [Usage guides](docs/guides/README.md) — build a snapshot-ready image per server, then checkpoint and restore.
+- [Usage guides](docs/guides/README.md) — build a snapshot-ready image per inference framework, then checkpoint and restore.
 
 **Reference**
 
 - [API](docs/reference/api.md) — `PodSnapshot`, `PodSnapshotContent`, `SnapshotJob`, and the `restore-from` annotation.
 - [Architecture](docs/reference/architecture.md) — operator and node-agent design, and the checkpoint/restore internals.
-- [Support matrix](docs/reference/support-matrix.md) — supported backends, GPUs, drivers, and Kubernetes versions.
+- [Support matrix](docs/reference/support-matrix.md) — supported frameworks, GPUs, drivers, and Kubernetes versions.
 - [CLI (`snapshotctl`)](docs/reference/cli.md) — lower-level checkpoint/restore from a pod manifest.
 
 **Operations**

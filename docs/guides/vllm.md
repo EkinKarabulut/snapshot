@@ -1,7 +1,7 @@
 # Build and deploy a vLLM replica
 
-Snapshot restores a replica by injecting its captured state into a *placeholder*
-image: a vLLM runtime image prepared with the application and
+Snapshot restores a replica by injecting its checkpointed state into a
+snapshot-ready image: a vLLM runtime image prepared with the application and
 container layout Snapshot expects. The Snapshot agent injects the restore
 tooling at runtime.
 
@@ -38,7 +38,7 @@ The program loads the model selected in `deployment.yaml`, runs one
 generation to initialize vLLM, and then calls `pause_generation()` and
 `sleep()`. It writes
 `ready-for-snapshot` only when the process is safe to checkpoint. In a restore
-container, it waits in standby until Snapshot injects the captured process.
+container, it waits in standby until Snapshot injects the checkpointed process.
 That process calls `wake_up()` and `resume_generation()`, runs another
 generation, starts an API, and writes `vllm-restore-ready` when the API is
 listening. To validate the restored replica, send a `POST` request to

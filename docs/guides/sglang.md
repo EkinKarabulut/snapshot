@@ -1,7 +1,7 @@
 # Build and deploy an SGLang replica
 
-Snapshot restores a replica by injecting its captured state into a *placeholder*
-image: an SGLang runtime image prepared with the application and container
+Snapshot restores a replica by injecting its checkpointed state into a
+snapshot-ready image: an SGLang runtime image prepared with the application and container
 layout Snapshot expects. The Snapshot agent injects the restore tooling at
 runtime.
 
@@ -47,9 +47,9 @@ both operations succeed.
 The Deployment enables SGLang's memory saver and CPU weight backup through the
 program. An init container downloads the selected model into a persistent
 cache. The source application then loads that cache with `HF_HUB_OFFLINE=1` so
-the captured process has no open Hugging Face connections.
+the checkpointed process has no open Hugging Face connections.
 
-After restore, the captured process calls
+After restore, the checkpointed process calls
 `Engine.resume_memory_occupation()` and
 `TokenizerManager.continue_generation()`. It runs another generation and
 starts an API on port 8000. It writes `sglang-restore-ready` only after the

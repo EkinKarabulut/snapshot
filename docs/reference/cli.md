@@ -41,9 +41,9 @@ snapshotctl restore \
   --namespace my-inference
 ```
 
-The restore manifest must contain a container with the same name captured by that
+The restore manifest must contain a container with the same name checkpointed by that
 `PodSnapshot`. `snapshotctl` returns once the restore is submitted — watch the
-pod's `Restored` status condition, readiness, and events for progress.
+pod's `snapshot/Restored` status condition, readiness, and events for progress.
 
 The source README for the tool lives at
 [`operator/cmd/snapshotctl/README.md`](../../operator/cmd/snapshotctl/README.md).

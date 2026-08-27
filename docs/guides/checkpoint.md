@@ -1,6 +1,6 @@
 # Checkpoint a replica
 
-Checkpointing saves an initialized replica's state as a snapshot artifact. There
+Checkpointing saves an initialized replica's state as a checkpoint artifact. There
 are two ways to do it, depending on the use case:
 
 | Method | Choose it when… | Implication |
@@ -32,7 +32,7 @@ metadata:
 spec:
   source:
     podRef:
-      name: vllm-replica-0
+      name: vllm-source-<pod-id>
       containers:
         - main
 ```
@@ -68,7 +68,7 @@ spec:
     spec:
       containers:
         - name: main
-          image: <registry>/vllm-placeholder:<tag>
+          image: <registry>/vllm-snapshot:<tag>
           # ...the replica configuration to checkpoint
 ```
 

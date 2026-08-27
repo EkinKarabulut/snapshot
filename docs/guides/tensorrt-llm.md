@@ -1,7 +1,7 @@
 # Build and deploy a TensorRT-LLM replica
 
-Snapshot restores a replica by injecting its captured state into a *placeholder*
-image: a TensorRT-LLM runtime image prepared with the application and container
+Snapshot restores a replica by injecting its checkpointed state into a
+snapshot-ready image: a TensorRT-LLM runtime image prepared with the application and container
 layout Snapshot expects. The Snapshot agent injects the restore tooling at
 runtime.
 
@@ -40,11 +40,11 @@ curl --fail --location \
 The program loads the model selected in `deployment.yaml` and calls
 `LLM.generate()` to initialize TensorRT-LLM. The synchronous call returns only
 after generation finishes, so no request remains in flight. The program runs
-`gc.collect()` and writes `ready-for-snapshot` when it reaches the safe capture
+`gc.collect()` and writes `ready-for-snapshot` when it reaches the safe checkpoint
 point.
 
 TensorRT-LLM does not use a framework pause or sleep call in this example. The
-model and initialized CUDA state remain resident. After restore, the captured
+model and initialized CUDA state remain resident. After restore, the checkpointed
 process calls `LLM.generate()` again and starts an API on port 8000. It writes
 `trtllm-restore-ready` only after the generation succeeds and the API is
 listening. To validate the restored replica, send a `POST` request to
@@ -54,7 +54,7 @@ listening. To validate the restored replica, send a `POST` request to
 The Dockerfile starts from the tested TensorRT-LLM 1.3.0 release candidate
 image, creates `/snapshot-control`, and adds `app.py`.
 `TLLM_NCCL_SYMMETRIC_ZERO_COPY=0` disables NCCL registered windows that CUDA
-checkpoint cannot capture. `UCX_TLS=tcp,self` avoids RDMA mappings that CRIU
+checkpoint does not support. `UCX_TLS=tcp,self` avoids RDMA mappings that CRIU
 cannot restore.
 
 The source and restore pods must use the same immutable image and mount the

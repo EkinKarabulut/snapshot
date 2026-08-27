@@ -26,7 +26,7 @@ metadata:
 spec:
   containers:
     - name: main
-      image: <registry>/vllm-placeholder:<tag>
+      image: <registry>/vllm-snapshot:<tag>
       # ...the replica configuration that was checkpointed
 ```
 
