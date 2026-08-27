@@ -28,7 +28,20 @@ spec:
     - name: main
       image: <registry>/vllm-placeholder:<tag>
       command: ["sleep", "infinity"]
+      env:
+        - name: SNAPSHOT_CONTROL_DIR
+          value: /snapshot-control
+      readinessProbe:
+        exec:
+          command: ["cat", "/snapshot-control/vllm-restore-ready"]
+      volumeMounts:
+        - name: snapshot-control
+          mountPath: /snapshot-control
+          subPath: main
       # ...the replica configuration that was checkpointed
+  volumes:
+    - name: snapshot-control
+      emptyDir: {}
 ```
 
 ```bash

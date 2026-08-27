@@ -61,8 +61,6 @@ async def main() -> None:
     )
 
     while True:
-        if CONTROL_DIR.joinpath("snapshot-complete").exists():
-            return
         if CONTROL_DIR.joinpath("restore-complete").exists():
             await engine.wake_up()
             await engine.resume_generation()

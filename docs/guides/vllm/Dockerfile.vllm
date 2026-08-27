@@ -26,8 +26,7 @@ RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends -t noble libc6 libc-bin; \
     rm -f /etc/apt/sources.list.d/snapshot-noble.list; \
-    rm -rf /var/lib/apt/lists/*; \
-    mkdir -p /snapshot-control
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY app.py ./
