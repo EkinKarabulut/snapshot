@@ -146,9 +146,11 @@ Wait until the SGLang replica finishes initialization and becomes safe to
 checkpoint:
 
 ```bash
-kubectl rollout status \
+kubectl wait \
   --namespace "$SGLANG_NAMESPACE" \
-  deployment/sglang-source \
+  --for=condition=Ready \
+  --selector app=sglang-source \
+  pod \
   --timeout=30m
 ```
 
