@@ -88,23 +88,6 @@ This section exposes the restored vLLM only to validate that it accepts new
 inference requests. The example endpoint is not intended as a production
 serving API.
 
-Add the validation port and readiness probe to the restored container:
-
-```yaml
-ports:
-  - name: validation
-    containerPort: 8000
-readinessProbe:
-  httpGet:
-    path: /health
-    port: validation
-  periodSeconds: 1
-  failureThreshold: 1200
-```
-
-The probe keeps the restored pod unready until the vLLM engine wakes and its
-validation API is available.
-
 After restoring a pod, forward its validation port:
 
 ```bash
