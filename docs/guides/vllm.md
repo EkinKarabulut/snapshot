@@ -90,6 +90,7 @@ Set the namespace where the vLLM pod will run:
 
 ```bash
 export VLLM_NAMESPACE=<namespace>
+kubectl get namespace "$VLLM_NAMESPACE"
 ```
 
 Set the model through the `SNAPSHOT_MODEL` environment variable in
