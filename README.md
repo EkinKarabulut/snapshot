@@ -6,8 +6,8 @@ CPU and GPU memory — and restores that state on any compatible node, so a pod
 becomes ready in seconds instead of minutes.
 
 Snapshot provides the checkpoint and restore primitives for GPU pods.
-Higher-level decisions — which pods to snapshot, when, and how to handle
-failures — are left to the systems that integrate it.
+Orchestration — which pods to checkpoint, when, and how the checkpoints are
+restored — is left to the systems that integrate it.
 
 > [!NOTE]
 > Snapshot's APIs may still change, so it is not yet recommended for
