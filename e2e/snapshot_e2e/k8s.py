@@ -75,6 +75,56 @@ def read_pod(namespace: str, name: str) -> client.V1Pod:
     return client.CoreV1Api().read_namespaced_pod(name=name, namespace=namespace)
 
 
+# JOB_NAME_LABEL is the label the batch/v1 Job controller stamps on every pod
+# it creates (batch.kubernetes.io/job-name). A SnapshotJob's source pod name
+# is not predictable (the Job controller appends a random suffix to the Job's
+# own name), so this is how the source pod is found.
+JOB_NAME_LABEL = "batch.kubernetes.io/job-name"
+
+
+def list_job_pods(namespace: str, job_name: str) -> list[client.V1Pod]:
+    return client.CoreV1Api().list_namespaced_pod(
+        namespace=namespace,
+        label_selector=f"{JOB_NAME_LABEL}={job_name}",
+    ).items
+
+
+def read_job(namespace: str, name: str) -> client.V1Job | None:
+    """Reads the source batch/v1 Job, or None if it is gone.
+
+    The Job's own status is what the SnapshotJob completion gate reads
+    (`jobComplete`), so it is the first thing to inspect when Completed never
+    flips despite a successful capture.
+    """
+    try:
+        return client.BatchV1Api().read_namespaced_job(name=name, namespace=namespace)
+    except ApiException as exc:
+        if exc.status == 404:
+            return None
+        raise
+
+
+def create_job(body: dict[str, Any]) -> client.V1Job:
+    return client.BatchV1Api().create_namespaced_job(
+        namespace=body["metadata"]["namespace"],
+        body=body,
+    )
+
+
+def delete_job(namespace: str, name: str) -> bool:
+    try:
+        client.BatchV1Api().delete_namespaced_job(
+            name=name,
+            namespace=namespace,
+            propagation_policy="Background",
+        )
+        return True
+    except ApiException as exc:
+        if exc.status == 404:
+            return False
+        raise
+
+
 def delete_pod(namespace: str, name: str) -> bool:
     try:
         client.CoreV1Api().delete_namespaced_pod(name=name, namespace=namespace)
