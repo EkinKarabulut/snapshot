@@ -15,8 +15,22 @@ API as part of its control loop.
 ## Prerequisites
 
 - Snapshot is [installed](../operations/install.md) in the cluster.
-- The replica runs a [snapshot-ready image](README.md) and is fully initialized
-  (weights loaded, kernels warmed up).
+- The pod to checkpoint is a **snapshot-ready pod**, fully initialized (weights
+  loaded, kernels warmed up). A [snapshot-ready image](README.md) is necessary but
+  not sufficient — the pod spec itself must also carry what Snapshot relies on to
+  checkpoint it:
+  - the `/snapshot-control` volume mount, the control directory Snapshot signals
+    through;
+  - the `securityContext` (seccomp profile) that checkpointing requires;
+  - a readiness gate on `/snapshot-control/ready-for-snapshot`, so the pod reports
+    Ready only once it is safe to checkpoint;
+  - the `nvidia.com/snapshot-is-checkpoint-source: "true"` pod label.
+
+The build-and-deploy guides include a complete, working example of such a pod for
+each framework — see the `deployment.yaml` referenced from the [vLLM](vllm.md),
+[SGLang](sglang.md), and [TensorRT-LLM](tensorrt-llm.md) guides. Use that pod spec
+as the reference: a `PodSnapshot` targets a pod deployed this way, and a
+`SnapshotJob`'s `podTemplate` must carry the same fields.
 
 ## Option 1 — `PodSnapshot` (checkpoint a running replica)
 
@@ -64,12 +78,14 @@ spec:
   podSnapshotTemplate:
     targetContainers:
       - main
+  # podTemplate must be a full snapshot-ready pod spec — see Prerequisites and the
+  # build-and-deploy deployment.yaml (checkpoint-source label, securityContext,
+  # /snapshot-control mount, and the ready-for-snapshot readiness gate).
   podTemplate:
     spec:
       containers:
         - name: main
           image: <registry>/vllm-snapshot:<tag>
-          # ...the replica configuration to checkpoint
 ```
 
 ```bash
