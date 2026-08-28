@@ -14,8 +14,8 @@ import (
 
 type PodOptions struct {
 	Namespace       string
-	CheckpointID    string
-	ArtifactVersion string
+	SnapshotName    string
+	SourceContainer string
 	SeccompProfile  string
 }
 
@@ -31,14 +31,21 @@ const (
 // NewRestorePod shapes every annotated target container for restore.
 func NewRestorePod(pod *corev1.Pod, opts PodOptions) (*corev1.Pod, error) {
 	pod = pod.DeepCopy()
-	if pod.Labels == nil {
-		pod.Labels = map[string]string{}
-	}
 	if pod.Annotations == nil {
 		pod.Annotations = map[string]string{}
 	}
-	snapshotv1alpha1.ApplyRestoreTargetMetadata(pod.Labels, pod.Annotations, true, opts.CheckpointID, opts.ArtifactVersion)
-	if err := PrepareRestorePodSpec(&pod.Spec, pod.Annotations, opts.SeccompProfile, true); err != nil {
+	pod.Annotations[snapshotv1alpha1.RestoreFromAnnotation] = opts.SnapshotName
+	if _, err := snapshotv1alpha1.GetRestoreFromSnapshotName(pod.Annotations); err != nil {
+		return nil, err
+	}
+	mappings, err := snapshotv1alpha1.RestoreContainerMappingsFromAnnotations(pod.Annotations, opts.SourceContainer)
+	if err != nil {
+		return nil, err
+	}
+	if err := snapshotv1alpha1.ValidateRestoreContainerMappings(mappings, opts.SourceContainer); err != nil {
+		return nil, err
+	}
+	if err := PrepareRestorePodSpec(&pod.Spec, mappings, opts.SeccompProfile, true); err != nil {
 		return nil, err
 	}
 	pod.Namespace = opts.Namespace
@@ -53,29 +60,33 @@ func NewRestorePod(pod *corev1.Pod, opts PodOptions) (*corev1.Pod, error) {
 // still provide their own inert restore command.
 func PrepareRestorePodSpec(
 	podSpec *corev1.PodSpec,
-	annotations map[string]string,
+	mappings []snapshotv1alpha1.RestoreContainerMapping,
 	seccompProfile string,
 	isCheckpointReady bool,
 ) error {
 	if podSpec == nil {
 		return fmt.Errorf("pod spec is nil")
 	}
-	targets, err := snapshotv1alpha1.TargetContainersFromAnnotations(annotations, 1, 0)
-	if err != nil {
-		return fmt.Errorf("restore pod spec: %w", err)
+	if len(mappings) == 0 {
+		return fmt.Errorf("restore target container is required")
 	}
-	EnsureLocalhostSeccompProfile(podSpec, seccompProfile)
-	for _, name := range targets {
+	containers := make([]*corev1.Container, 0, len(mappings))
+	for _, mapping := range mappings {
 		var container *corev1.Container
 		for i := range podSpec.Containers {
-			if podSpec.Containers[i].Name == name {
+			if podSpec.Containers[i].Name == mapping.Destination {
 				container = &podSpec.Containers[i]
 				break
 			}
 		}
 		if container == nil {
-			return fmt.Errorf("restore target container %q not found in pod spec (from %s annotation)", name, snapshotv1alpha1.TargetContainersAnnotation)
+			return fmt.Errorf("restore destination container %q not found in pod spec", mapping.Destination)
 		}
+		containers = append(containers, container)
+	}
+
+	EnsureLocalhostSeccompProfile(podSpec, seccompProfile)
+	for _, container := range containers {
 		EnsureControlVolume(podSpec, container)
 		if isCheckpointReady {
 			// Standby-aware entrypoints honor this env by writing restore
@@ -140,15 +151,14 @@ func ensureRestoreStartupProbe(container *corev1.Container) {
 // ValidateRestorePodSpec verifies the target containers are restore-shaped.
 func ValidateRestorePodSpec(
 	podSpec *corev1.PodSpec,
-	annotations map[string]string,
+	mappings []snapshotv1alpha1.RestoreContainerMapping,
 	seccompProfile string,
 ) error {
 	if podSpec == nil {
 		return fmt.Errorf("pod spec is nil")
 	}
-	targets, err := snapshotv1alpha1.TargetContainersFromAnnotations(annotations, 1, 0)
-	if err != nil {
-		return err
+	if len(mappings) == 0 {
+		return fmt.Errorf("restore target container is required")
 	}
 	hasControlVolume := false
 	for _, volume := range podSpec.Volumes {
@@ -160,7 +170,8 @@ func ValidateRestorePodSpec(
 	if !hasControlVolume {
 		return fmt.Errorf("missing %s emptyDir volume; add it via snapshotprotocol.EnsureControlVolume", snapshotv1alpha1.SnapshotControlVolumeName)
 	}
-	for _, name := range targets {
+	for _, mapping := range mappings {
+		name := mapping.Destination
 		var container *corev1.Container
 		for i := range podSpec.Containers {
 			if podSpec.Containers[i].Name == name {
@@ -169,7 +180,7 @@ func ValidateRestorePodSpec(
 			}
 		}
 		if container == nil {
-			return fmt.Errorf("restore target container %q not found in pod spec (from %s annotation)", name, snapshotv1alpha1.TargetContainersAnnotation)
+			return fmt.Errorf("restore target container %q not found in pod spec", name)
 		}
 		hasControlMount := false
 		for _, mount := range container.VolumeMounts {

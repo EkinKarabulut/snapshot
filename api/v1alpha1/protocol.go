@@ -10,143 +10,77 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation"
 )
 
-// RestoreStatusAnnotationKeys holds the per-container restore status annotation keys.
-type RestoreStatusAnnotationKeys struct {
-	Status      string
-	ContainerID string
+// RestoreContainerMapping maps the one captured source container to a restore
+// destination in the target Pod.
+// +kubebuilder:object:generate=false
+type RestoreContainerMapping struct {
+	Source      string
+	Destination string
 }
 
-// ArtifactVersion normalizes an artifact version, defaulting when empty.
-func ArtifactVersion(version string) string {
-	version = strings.TrimSpace(version)
-	if version == "" {
-		return DefaultCheckpointArtifactVersion
+// GetRestoreFromSnapshotName returns the same-namespace PodSnapshot named by
+// the restore-from annotation.
+func GetRestoreFromSnapshotName(annotations map[string]string) (string, error) {
+	snapshotName := strings.TrimSpace(annotations[RestoreFromAnnotation])
+	if snapshotName == "" {
+		return "", fmt.Errorf("%s must name a PodSnapshot", RestoreFromAnnotation)
 	}
-	return version
+	if errs := validation.IsDNS1123Subdomain(snapshotName); len(errs) != 0 {
+		return "", fmt.Errorf("%s value %q is not a valid PodSnapshot name: %s", RestoreFromAnnotation, snapshotName, strings.Join(errs, "; "))
+	}
+	return snapshotName, nil
 }
 
-// FormatTargetContainers renders the canonical annotation value.
-func FormatTargetContainers(names []string) string {
-	cleaned := make([]string, 0, len(names))
-	for _, name := range names {
-		name = strings.TrimSpace(name)
-		if name == "" {
-			continue
-		}
-		cleaned = append(cleaned, name)
+// RestoreContainerMappingsFromAnnotations parses the optional flat restore
+// mapping. Absence keeps the existing same-name restore behavior.
+func RestoreContainerMappingsFromAnnotations(annotations map[string]string, capturedSource string) ([]RestoreContainerMapping, error) {
+	raw, ok := annotations[RestoreContainerMapAnnotation]
+	if !ok {
+		capturedSource = strings.TrimSpace(capturedSource)
+		return []RestoreContainerMapping{{Source: capturedSource, Destination: capturedSource}}, nil
 	}
-	return strings.Join(cleaned, ",")
-}
-
-// ParseTargetContainers trims names and rejects empty or duplicate entries.
-func ParseTargetContainers(value string) ([]string, error) {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return nil, nil
-	}
-	parts := strings.Split(value, ",")
-	seen := make(map[string]struct{}, len(parts))
-	out := make([]string, 0, len(parts))
+	parts := strings.Split(strings.TrimSpace(raw), ",")
+	mappings := make([]RestoreContainerMapping, 0, len(parts))
 	for _, part := range parts {
-		name := strings.TrimSpace(part)
-		if name == "" {
-			return nil, fmt.Errorf("empty container name in %s=%q", TargetContainersAnnotation, value)
+		pair := strings.Split(part, "=")
+		if len(pair) != 2 {
+			return nil, fmt.Errorf("invalid %s entry %q: expected source=destination", RestoreContainerMapAnnotation, strings.TrimSpace(part))
 		}
-		if _, dup := seen[name]; dup {
-			return nil, fmt.Errorf("duplicate container name %q in %s=%q", name, TargetContainersAnnotation, value)
+		mappings = append(mappings, RestoreContainerMapping{
+			Source:      strings.TrimSpace(pair[0]),
+			Destination: strings.TrimSpace(pair[1]),
+		})
+	}
+	return mappings, nil
+}
+
+// ValidateRestoreContainerMappings enforces the one-source-to-many-destinations
+// contract after parsing.
+func ValidateRestoreContainerMappings(mappings []RestoreContainerMapping, capturedSource string) error {
+	capturedSource = strings.TrimSpace(capturedSource)
+	if errs := validation.IsDNS1123Label(capturedSource); len(errs) != 0 {
+		return fmt.Errorf("captured source container %q is invalid: %s", capturedSource, strings.Join(errs, "; "))
+	}
+	if len(mappings) == 0 {
+		return fmt.Errorf("restore container mapping must contain at least one destination")
+	}
+	destinations := make(map[string]struct{}, len(mappings))
+	for _, mapping := range mappings {
+		source := mapping.Source
+		destination := mapping.Destination
+		if errs := validation.IsDNS1123Label(source); len(errs) != 0 {
+			return fmt.Errorf("invalid restore source container %q: %s", source, strings.Join(errs, "; "))
 		}
-		seen[name] = struct{}{}
-		out = append(out, name)
-	}
-	return out, nil
-}
-
-// TargetContainersFromAnnotations requires the target list and enforces bounds.
-func TargetContainersFromAnnotations(annotations map[string]string, minCount, maxCount int) ([]string, error) {
-	raw, ok := annotations[TargetContainersAnnotation]
-	if !ok || strings.TrimSpace(raw) == "" {
-		return nil, fmt.Errorf("missing required %s annotation", TargetContainersAnnotation)
-	}
-	names, err := ParseTargetContainers(raw)
-	if err != nil {
-		return nil, err
-	}
-	if minCount > 0 && len(names) < minCount {
-		return nil, fmt.Errorf("%s must list at least %d container name(s), got %d", TargetContainersAnnotation, minCount, len(names))
-	}
-	if maxCount > 0 && len(names) > maxCount {
-		return nil, fmt.Errorf("%s must list at most %d container name(s), got %d", TargetContainersAnnotation, maxCount, len(names))
-	}
-	return names, nil
-}
-
-// RestoreStatusAnnotationKeysFor builds the per-container restore status keys, validating the name.
-func RestoreStatusAnnotationKeysFor(containerName string) (RestoreStatusAnnotationKeys, error) {
-	keys := RestoreStatusAnnotationKeys{
-		Status:      RestoreStatusAnnotationPrefix + containerName,
-		ContainerID: RestoreContainerIDAnnotationPrefix + containerName,
-	}
-	for _, annotationKey := range []string{keys.Status, keys.ContainerID} {
-		if errs := validation.IsQualifiedName(annotationKey); len(errs) > 0 {
-			return RestoreStatusAnnotationKeys{}, fmt.Errorf("container name %q cannot be used in restore status annotation key %q: %s", containerName, annotationKey, strings.Join(errs, "; "))
+		if errs := validation.IsDNS1123Label(destination); len(errs) != 0 {
+			return fmt.Errorf("invalid restore destination container %q: %s", destination, strings.Join(errs, "; "))
 		}
-	}
-	return keys, nil
-}
-
-// RestoreStatusAnnotations builds the per-container restore status annotation map.
-func RestoreStatusAnnotations(containerName, status, containerID string) (map[string]string, error) {
-	keys, err := RestoreStatusAnnotationKeysFor(containerName)
-	if err != nil {
-		return nil, err
-	}
-	return map[string]string{
-		keys.Status:      status,
-		keys.ContainerID: containerID,
-	}, nil
-}
-
-func clearRestoreStatusKeys(annotations map[string]string) {
-	delete(annotations, RestoreStatusAnnotation)
-	delete(annotations, RestoreContainerIDAnnotation)
-	for key := range annotations {
-		if strings.HasPrefix(key, RestoreStatusAnnotationPrefix) ||
-			strings.HasPrefix(key, RestoreContainerIDAnnotationPrefix) {
-			delete(annotations, key)
+		if source != capturedSource {
+			return fmt.Errorf("restore source container %q does not match captured container %q", source, capturedSource)
 		}
+		if _, duplicate := destinations[destination]; duplicate {
+			return fmt.Errorf("duplicate restore destination container %q", destination)
+		}
+		destinations[destination] = struct{}{}
 	}
-}
-
-// ApplyRestoreTargetMetadata resets restore metadata and stamps checkpoint ID.
-// The caller owns TargetContainersAnnotation.
-func ApplyRestoreTargetMetadata(labels map[string]string, annotations map[string]string, enabled bool, checkpointID string, artifactVersion string) {
-	delete(labels, CheckpointSourceLabel)
-	delete(labels, RestoreTargetLabel)
-	delete(labels, CheckpointIDLabel)
-	delete(annotations, CheckpointArtifactVersionAnnotation)
-	delete(annotations, CheckpointStatusAnnotation)
-	clearRestoreStatusKeys(annotations)
-
-	if !enabled {
-		return
-	}
-
-	labels[RestoreTargetLabel] = "true"
-	if checkpointID != "" {
-		labels[CheckpointIDLabel] = checkpointID
-	}
-	annotations[CheckpointArtifactVersionAnnotation] = ArtifactVersion(artifactVersion)
-}
-
-// ApplyCheckpointSourceMetadata stamps checkpoint-source labels/annotations.
-func ApplyCheckpointSourceMetadata(labels map[string]string, annotations map[string]string, checkpointID string, artifactVersion string) {
-	delete(labels, RestoreTargetLabel)
-	delete(labels, CheckpointIDLabel)
-	delete(annotations, CheckpointArtifactVersionAnnotation)
-
-	labels[CheckpointSourceLabel] = "true"
-	if checkpointID != "" {
-		labels[CheckpointIDLabel] = checkpointID
-	}
-	annotations[CheckpointArtifactVersionAnnotation] = ArtifactVersion(artifactVersion)
+	return nil
 }

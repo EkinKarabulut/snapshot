@@ -18,8 +18,6 @@ import (
 type CheckpointJobOptions struct {
 	Namespace             string
 	TargetContainer       string
-	CheckpointID          string
-	ArtifactVersion       string
 	SeccompProfile        string
 	Name                  string
 	ActiveDeadlineSeconds *int64
@@ -27,12 +25,16 @@ type CheckpointJobOptions struct {
 	WrapLaunchJob         bool
 }
 
-func GetCheckpointJobName(checkpointID string, artifactVersion string) string {
-	return "checkpoint-job-" + checkpointID + "-" + ArtifactVersion(artifactVersion)
-}
-
 func NewCheckpointJob(podTemplate *corev1.PodTemplateSpec, opts CheckpointJobOptions) (*batchv1.Job, error) {
 	podTemplate = podTemplate.DeepCopy()
+	for _, annotation := range []string{
+		snapshotv1alpha1.RestoreFromAnnotation,
+		snapshotv1alpha1.RestoreContainerMapAnnotation,
+	} {
+		if _, restoreRequested := podTemplate.Annotations[annotation]; restoreRequested {
+			return nil, fmt.Errorf("checkpoint job pod template must not set %s", annotation)
+		}
+	}
 	if podTemplate.Labels == nil {
 		podTemplate.Labels = map[string]string{}
 	}
@@ -40,7 +42,6 @@ func NewCheckpointJob(podTemplate *corev1.PodTemplateSpec, opts CheckpointJobOpt
 		podTemplate.Annotations = map[string]string{}
 	}
 	podTemplate.Annotations = DisableCheckpointJobSidecarInjection(podTemplate.Annotations)
-	snapshotv1alpha1.ApplyCheckpointSourceMetadata(podTemplate.Labels, podTemplate.Annotations, opts.CheckpointID, opts.ArtifactVersion)
 	podTemplate.Spec.RestartPolicy = corev1.RestartPolicyNever
 	if opts.SeccompProfile != "" {
 		EnsureLocalhostSeccompProfile(&podTemplate.Spec, opts.SeccompProfile)
@@ -100,9 +101,6 @@ func NewCheckpointJob(podTemplate *corev1.PodTemplateSpec, opts CheckpointJobOpt
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      opts.Name,
 			Namespace: opts.Namespace,
-			Labels: map[string]string{
-				CheckpointIDLabel: opts.CheckpointID,
-			},
 		},
 		Spec: batchv1.JobSpec{
 			ActiveDeadlineSeconds:   opts.ActiveDeadlineSeconds,
@@ -152,7 +150,7 @@ func DisableCheckpointJobSidecarInjection(annotations map[string]string) map[str
 // multi-GPU checkpoints. The launch-job file is copied from its transient
 // procfs FD into the per-pod snapshot control volume before the original
 // command starts. The workload inherits that stable path, while the snapshot
-// agent stages the capture-time contents into the versioned artifact.
+// agent stages the capture-time contents into the content-owned artifact.
 func wrapWithCudaCheckpointLaunchJob(command []string, args []string) ([]string, []string) {
 	const persistJobFileScript = `set -eu
 job_file="$1"

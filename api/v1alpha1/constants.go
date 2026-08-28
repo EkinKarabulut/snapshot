@@ -9,47 +9,30 @@ package v1alpha1
 // single versioned home for these constants so both sides pin them from the api
 // module.
 const (
-	CheckpointSourceLabel = "nvidia.com/snapshot-is-checkpoint-source"
-
-	// CaptureEligibleLabel is the gate-applied promotion label. The operator stamps
-	// CheckpointSourceLabel on the checkpoint Job pod at creation; the node agent's pre-bind gate adds
-	// CaptureEligibleLabel only after the source pod passes validation. The source-pod capture
-	// informer keys on CaptureEligibleLabel so only gate-validated pods drive the capture path.
+	// CaptureEligibleLabel is the gate-applied promotion label: the node agent's pre-bind gate
+	// adds it only after the source pod passes validation. The agent's source-pod capture
+	// informer keys on it so only gate-validated pods drive the capture path.
 	CaptureEligibleLabel = "nvidia.com/snapshot-capture-eligible"
-
-	// Restore pods carry CheckpointIDLabel without CheckpointSourceLabel.
-	CheckpointIDLabel  = "nvidia.com/snapshot-checkpoint-id"
-	RestoreTargetLabel = "nvidia.com/snapshot-is-restore-target"
-
-	CheckpointArtifactVersionAnnotation = "nvidia.com/snapshot-artifact-version"
 
 	// SnapshotNodeLabel mirrors PodSnapshotContent.spec.source.nodeName onto the
 	// object so the per-node agent's cache can label-select work for its node.
 	SnapshotNodeLabel = "nvidia.com/snapshot-node"
 
-	// Required comma-separated checkpoint/restore target container list.
-	TargetContainersAnnotation = "nvidia.com/snapshot-target-containers"
+	// RestoreFromAnnotation names the PodSnapshot to restore in the pod's
+	// namespace.
+	RestoreFromAnnotation = "nvidia.com/restore-from"
 
-	CheckpointStatusAnnotation = "nvidia.com/snapshot-checkpoint-status"
+	// RestoreContainerMapAnnotation optionally maps the single captured source
+	// container to one or more restore destinations. Its value is a comma-separated
+	// list of source=destination pairs. When absent, restore uses the captured
+	// container name as the destination.
+	RestoreContainerMapAnnotation = "nvidia.com/restore-container-map"
 
-	// Full keys are nvidia.com/snapshot-restore-status.<containerName>.
-	RestoreStatusAnnotationPrefix = "nvidia.com/snapshot-restore-status."
+	// RestoredCondition is the Pod status condition owned by the node agent.
+	RestoredCondition = "nvidia.com/Restored"
 
-	// Full keys are nvidia.com/snapshot-restore-container-id.<containerName>.
-	RestoreContainerIDAnnotationPrefix = "nvidia.com/snapshot-restore-container-id."
-	// Legacy unscoped restore status keys, cleared when stamping fresh metadata.
-	RestoreStatusAnnotation      = "nvidia.com/snapshot-restore-status"
-	RestoreContainerIDAnnotation = "nvidia.com/snapshot-restore-container-id"
-
-	DefaultCheckpointArtifactVersion = "1"
-	DefaultCheckpointJobTTLSeconds   = int32(300) // TODO: dead code — remove once no longer synced from Dynamo
-	DefaultSeccompLocalhostProfile   = "profiles/block-iouring.json"
-
-	CheckpointStatusCompleted = "completed" // TODO: dead code — remove once no longer synced from Dynamo
-	CheckpointStatusFailed    = "failed"    // TODO: dead code — remove once no longer synced from Dynamo
-	RestoreStatusInProgress   = "in_progress"
-	RestoreStatusCompleted    = "completed"
-	RestoreStatusFailed       = "failed"
+	CheckpointVolumeName           = "checkpoint-storage"
+	DefaultSeccompLocalhostProfile = "profiles/block-iouring.json"
 )
 
 // Control-volume contract: the per-pod emptyDir carrying checkpoint/restore
@@ -84,8 +67,12 @@ const (
 	// image depends on this name.
 	LegacySnapshotControlDirEnv = "DYN_SNAPSHOT_CONTROL_DIR"
 
-	// SnapshotCompleteFile is written by the snapshot agent inside the
-	// control volume when a checkpoint has completed successfully.
+	// SnapshotCompleteFile named the sentinel the agent used to release a
+	// checkpointed workload when leave-running dumps existed. A checkpoint now
+	// always terminates the source process, so the agent no longer writes it;
+	// a workload polling for this file is killed instead of released.
+	//
+	// Deprecated: no longer written. Remove once no workload image waits on it.
 	SnapshotCompleteFile = "snapshot-complete"
 
 	// RestoreCompleteFile is written by the snapshot agent inside the

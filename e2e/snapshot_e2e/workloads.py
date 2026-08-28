@@ -15,7 +15,12 @@ from snapshot_e2e import k8s
 
 CONTAINER = "main"
 CONTROL_DIR = "/snapshot-control"
+CHECKPOINT_DIR = "/checkpoints"
 SOURCE_READY = f"{CONTROL_DIR}/ready-for-snapshot"
+# Legacy release sentinel: the agent no longer writes it (a capture always
+# terminates the source). Kept only so tests can assert workloads do NOT
+# depend on it.
+SNAPSHOT_COMPLETE = f"{CONTROL_DIR}/snapshot-complete"
 RESTORE_DONE = f"{CONTROL_DIR}/restore-complete"
 RESTORE_INITIAL_TOKEN = f"{CONTROL_DIR}/initial-restore-token"
 STATE_DIR = "/tmp/e2e-state"
@@ -28,7 +33,9 @@ RESTORE_TOKEN_ENV = "SNAPSHOT_E2E_RESTORE_TOKEN"
 @dataclass(frozen=True)
 class TestRun:
     suffix: str
-    checkpoint_id: str
+    # The SnapshotJob's name; the operator reuses it for the source Job and
+    # the produced PodSnapshot (buildSourceJob / buildPodSnapshot).
+    snapshotjob_name: str
     snapshot_name: str
     source_pod: str
     restore_pod: str
@@ -41,7 +48,7 @@ class TestRun:
         suffix = f"{prefix}-{uuid.uuid4().hex[:6]}"
         return cls(
             suffix=suffix,
-            checkpoint_id=suffix,
+            snapshotjob_name=suffix,
             snapshot_name=f"{suffix}-snapshot",
             source_pod=f"{suffix}-source",
             restore_pod=f"{suffix}-restore",
@@ -60,24 +67,14 @@ def source_pod(
     config: k8s.E2EConfig,
     run: TestRun,
     gpu: bool,
-    include_target_annotation: bool = True,
-    include_checkpoint_label: bool = True,
+    annotations: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    labels = {
-        **run.labels,
-        "nvidia.com/snapshot-is-checkpoint-source": "true",
-    }
-    if include_checkpoint_label:
-        labels["nvidia.com/snapshot-checkpoint-id"] = run.checkpoint_id
-
     metadata = {
         "name": run.source_pod,
         "namespace": config.namespace,
-        "labels": labels,
-        "annotations": {},
+        "labels": run.labels,
+        "annotations": annotations or {},
     }
-    if include_target_annotation:
-        metadata["annotations"]["nvidia.com/snapshot-target-containers"] = CONTAINER
     spec = base_pod_spec(config, run, source_command(run.image, gpu), gpu)
     spec["containers"][0]["env"] = [
         {"name": SOURCE_TOKEN_ENV, "value": run.source_token},
@@ -90,13 +87,55 @@ def source_pod(
     }
 
 
+def snapshotjob_pod_template(
+    *,
+    config: k8s.E2EConfig,
+    run: TestRun,
+    gpu: bool,
+) -> dict[str, Any]:
+    # No snapshot-* labels/annotations here: unlike source_pod (the plain
+    # PodSnapshot flow, which the test must annotate itself), a SnapshotJob's
+    # controller derives everything — the checkpoint ID, the target container,
+    # storage — from spec.podTemplate and spec.podSnapshotTemplate. That is the
+    # feature's whole point, so this template is what a real caller would write.
+    spec = base_pod_spec(
+        config,
+        run,
+        snapshotjob_source_command(run.image, gpu),
+        gpu,
+        control_volume=False,
+        checkpoint_pvc=False,
+    )
+    spec["containers"][0]["env"] = [
+        {"name": SOURCE_TOKEN_ENV, "value": run.source_token},
+    ]
+    return {"metadata": {"labels": {**run.labels}}, "spec": spec}
+
+
+def snapshotjob_hang_pod_template(
+    *,
+    config: k8s.E2EConfig,
+    run: TestRun,
+) -> dict[str, Any]:
+    # Never writes ready-for-snapshot, so the SnapshotJob's Running condition
+    # never flips True and the source Job runs to its activeDeadlineSeconds —
+    # the negative DeadlineExceeded path.
+    command = 'set -euo pipefail\necho "[snapshotjob-hang] never signaling ready"\nsleep infinity\n'
+    spec = base_pod_spec(config, run, command, gpu=False, control_volume=False, checkpoint_pvc=False)
+    return {"metadata": {"labels": {**run.labels}}, "spec": spec}
+
+
 def restore_pod(
     *,
     config: k8s.E2EConfig,
     run: TestRun,
     gpu: bool,
     source_node: str | None = None,
+    snapshot_name: str | None = None,
 ) -> dict[str, Any]:
+    # snapshot_name defaults to the lifecycle flow's test-created PodSnapshot
+    # (run.snapshot_name); a SnapshotJob-produced PodSnapshot is named after
+    # the SnapshotJob instead, so those tests pass it explicitly.
     spec = base_pod_spec(config, run, restore_command(run.image, gpu), gpu)
     spec["securityContext"] = {
         "seccompProfile": {
@@ -124,16 +163,74 @@ def restore_pod(
             "namespace": config.namespace,
             "labels": {
                 **run.labels,
-                "nvidia.com/snapshot-checkpoint-id": run.checkpoint_id,
-                "nvidia.com/snapshot-is-restore-target": "true",
             },
             "annotations": {
-                "nvidia.com/snapshot-target-containers": CONTAINER,
-                "nvidia.com/snapshot-artifact-version": "1",
+                "nvidia.com/restore-from": snapshot_name or run.snapshot_name,
             },
         },
         "spec": spec,
     }
+
+
+def multi_restore_pod(
+    *,
+    config: k8s.E2EConfig,
+    run: TestRun,
+    source_node: str,
+) -> tuple[dict[str, Any], dict[str, str]]:
+    destinations = ("engine-0", "engine-1")
+    restore_tokens = {
+        destination: f"{run.restore_token}-{destination}"
+        for destination in destinations
+    }
+    spec = base_pod_spec(config, run, restore_command(run.image, False), False)
+    spec["securityContext"] = {
+        "seccompProfile": {
+            "type": "Localhost",
+            "localhostProfile": "profiles/block-iouring.json",
+        }
+    }
+    template = spec["containers"][0]
+    containers = []
+    for destination in destinations:
+        container = {
+            **template,
+            "name": destination,
+            "volumeMounts": [
+                {
+                    "name": "snapshot-control",
+                    "mountPath": CONTROL_DIR,
+                    "subPath": destination,
+                }
+            ],
+            "env": [
+                {"name": "DYN_SNAPSHOT_RESTORE_STANDBY", "value": "1"},
+                {"name": "SNAPSHOT_CONTROL_DIR", "value": CONTROL_DIR},
+                {"name": RESTORE_TOKEN_ENV, "value": restore_tokens[destination]},
+            ],
+            "startupProbe": {
+                "exec": {"command": ["/bin/bash", "-lc", f"test -f {RESTORE_DONE}"]},
+                "periodSeconds": 1,
+                "failureThreshold": 1200,
+            },
+        }
+        containers.append(container)
+    spec["containers"] = containers
+    spec["affinity"] = same_node_affinity(source_node)
+    return {
+        "apiVersion": "v1",
+        "kind": "Pod",
+        "metadata": {
+            "name": run.restore_pod,
+            "namespace": config.namespace,
+            "labels": {**run.labels},
+            "annotations": {
+                "nvidia.com/restore-from": run.snapshot_name,
+                "nvidia.com/restore-container-map": "main=engine-0,main=engine-1",
+            },
+        },
+        "spec": spec,
+    }, restore_tokens
 
 
 def base_pod_spec(
@@ -141,16 +238,39 @@ def base_pod_spec(
     run: TestRun,
     command: str,
     gpu: bool,
+    *,
+    control_volume: bool = True,
+    checkpoint_pvc: bool = True,
 ) -> dict[str, Any]:
+    # control_volume=False for a SnapshotJob's spec.podTemplate: the operator
+    # injects the snapshot-control emptyDir, mount, and env var itself
+    # (EnsureControlVolume) — a caller-provided one would be redundant with
+    # what the feature actually promises callers they do not have to set up.
+    #
+    # checkpoint_pvc=False likewise for a SnapshotJob's spec.podTemplate: since
+    # the agent owns the checkpoint-storage mount itself (mounted on the
+    # agent's own pod, not the workload pod — see checkpoint_agent_pod() /
+    # checkpoint_artifact_path() in lifecycle.py), a real caller's pod no
+    # longer needs to carry this volume at all.
     container: dict[str, Any] = {
         "name": CONTAINER,
         "image": run.image,
         "imagePullPolicy": "IfNotPresent",
         "command": ["/bin/bash", "-lc", command],
-        "volumeMounts": [
-            {"name": "snapshot-control", "mountPath": CONTROL_DIR},
-        ],
+        "volumeMounts": [],
     }
+    volumes: list[dict[str, Any]] = []
+    if checkpoint_pvc:
+        container["volumeMounts"].append({"name": "checkpoint-storage", "mountPath": CHECKPOINT_DIR})
+        volumes.append(
+            {
+                "name": "checkpoint-storage",
+                "persistentVolumeClaim": {"claimName": config.pvc_name},
+            }
+        )
+    if control_volume:
+        container["volumeMounts"].insert(0, {"name": "snapshot-control", "mountPath": CONTROL_DIR})
+        volumes.insert(0, {"name": "snapshot-control", "emptyDir": {}})
     spec: dict[str, Any] = {
         "restartPolicy": "Never",
         # These are throwaway test pods; keep cleanup from waiting on the
@@ -158,9 +278,7 @@ def base_pod_spec(
         "terminationGracePeriodSeconds": 1,
         "containers": [container],
         **workload_scheduling(),
-        "volumes": [
-            {"name": "snapshot-control", "emptyDir": {}},
-        ],
+        "volumes": volumes,
     }
     if gpu:
         spec["runtimeClassName"] = "nvidia"
@@ -169,7 +287,8 @@ def base_pod_spec(
 
 
 def workload_scheduling() -> dict[str, Any]:
-    # Snapshot agents run on GPU nodes, so keep workloads within their coverage.
+    # Keep all workload pods on GPU nodes so the shared RWO checkpoint PVC binds in
+    # a zone where both source and restore pods can schedule.
     node_selector = {
         "nvidia.com/gpu.present": "true",
     }
@@ -234,6 +353,74 @@ mkdir -p {STATE_DIR}
 """
 
 
+def snapshotjob_source_command(image: str, gpu: bool) -> str:
+    # No supervisor, no snapshot-complete wait: the capture terminates the
+    # source process (leaveRunning is removed), so there is no post-capture
+    # phase to orchestrate. The workload establishes state and loops until the
+    # dump kills it; the pod then fails, and the SnapshotJob completes from
+    # the capture result alone.
+    state_loop = CUDA_SOURCE if gpu else CPU_SOURCE
+    return f"""set -euo pipefail
+echo "[snapshotjob-source] image={image}"
+mkdir -p {STATE_DIR}
+{state_loop}
+"""
+
+
+def snapshotjob_helper_pod_template(
+    *,
+    config: k8s.E2EConfig,
+    run: TestRun,
+    helper_command: str,
+) -> dict[str, Any]:
+    # Two containers: the CRIU target plus a helper doing independent work
+    # (the design's GMS-saver pattern). The dump kills only the target; the
+    # SnapshotJob must wait for the helper before completing, and a helper
+    # failure must fail the run even though the capture succeeded.
+    template = snapshotjob_pod_template(config=config, run=run, gpu=False)
+    template["spec"]["containers"].append(
+        {
+            "name": "helper",
+            "image": run.image,
+            "imagePullPolicy": "IfNotPresent",
+            "command": ["/bin/bash", "-lc", helper_command],
+        }
+    )
+    return template
+
+
+def snapshotjob_unschedulable_pod_template(
+    *,
+    config: k8s.E2EConfig,
+    run: TestRun,
+) -> dict[str, Any]:
+    # A nodeSelector no node satisfies: the pod stays Pending forever, so the
+    # PodSnapshot reconciler never creates a work order (unscheduled-pod
+    # backoff) and no agent is ever involved — the deadline is the only thing
+    # that can resolve the run.
+    spec = base_pod_spec(config, run, "sleep infinity", gpu=False, control_volume=False)
+    spec["nodeSelector"] = {"snapshot-e2e/unschedulable": "true"}
+    return {"metadata": {"labels": {**run.labels}}, "spec": spec}
+
+
+def snapshotjob_exit_pod_template(
+    *,
+    config: k8s.E2EConfig,
+    run: TestRun,
+    exit_code: int,
+) -> dict[str, Any]:
+    # Exits immediately without ever signalling ready-for-snapshot: the
+    # workload-died-before-capture paths. exit_code=0 drives the
+    # SourceCompletedWithoutCapture class, non-zero the JobFailed class.
+    command = (
+        "set -euo pipefail\n"
+        f'echo "[snapshotjob-exit] exiting with {exit_code} before capture"\n'
+        f"exit {exit_code}\n"
+    )
+    spec = base_pod_spec(config, run, command, gpu=False, control_volume=False)
+    return {"metadata": {"labels": {**run.labels}}, "spec": spec}
+
+
 def restore_command(image: str, gpu: bool) -> str:
     # Restore starts from a live placeholder container. The agent nsenters into
     # it later, so this command may run briefly; record the initial restore token
@@ -258,15 +445,22 @@ sleep infinity
 # CPU_SOURCE stores one token in two places: a shell variable, which is process
 # memory, and {FILE_TOKEN}, which is filesystem state. The loop only provides
 # post-restore liveness: every observation must keep reporting the source token.
+#
+# ready-for-snapshot is written only after observation seq=0: the dump can
+# start within a second of readiness and terminates the process, so "at least
+# one pre-capture observation exists" must be a workload ordering guarantee —
+# a test cannot poll for it against a pod that dies with the dump.
 CPU_SOURCE = f"""
 cpu_token="${{{SOURCE_TOKEN_ENV}}}"
 unset {SOURCE_TOKEN_ENV}
 printf '%s\\n' "$cpu_token" > {FILE_TOKEN}
-echo ready > {SOURCE_READY}
 seq=0
 while true; do
   file_token="$(cat {FILE_TOKEN} 2>/dev/null || true)"
   printf 'observation seq=%s cpu=%s file=%s gpu=disabled\\n' "$seq" "$cpu_token" "$file_token" >> {OBSERVATIONS}
+  if [ "$seq" -eq 0 ]; then
+    echo ready > {SOURCE_READY}
+  fi
   seq=$((seq + 1))
   sleep 5
 done
@@ -347,8 +541,9 @@ int main(void) {{
     fprintf(stderr, "initial CUDA token copy failed\\n");
     return 1;
   }}
-  FILE *ready = fopen("{SOURCE_READY}", "w");
-  if (ready) {{ fprintf(ready, "ready\\n"); fclose(ready); }}
+  /* ready-for-snapshot is written inside the loop after observation seq=0:
+     the dump starts on readiness and kills this process, so the first
+     observation must be ordered before the signal that admits the dump. */
   int seq = 0;
   while (1) {{
     char gpu_token[TOKEN_SIZE];
@@ -369,6 +564,10 @@ int main(void) {{
     if (log) {{
       fprintf(log, "observation seq=%d cpu=%s file=%s gpu=%s\\n", seq, cpu_token, file_token, gpu_token);
       fclose(log);
+    }}
+    if (seq == 0) {{
+      FILE *ready = fopen("{SOURCE_READY}", "w");
+      if (ready) {{ fprintf(ready, "ready\\n"); fclose(ready); }}
     }}
     seq++;
     sleep(5);

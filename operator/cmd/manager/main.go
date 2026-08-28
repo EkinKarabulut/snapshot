@@ -55,11 +55,22 @@ func main() {
 	}
 
 	podSnapshotReconciler := &controller.PodSnapshotReconciler{
-		Client:   mgr.GetClient(),
-		Recorder: mgr.GetEventRecorderFor("podsnapshot-controller"),
+		Client:             mgr.GetClient(),
+		NonCacheReadClient: mgr.GetAPIReader(),
+		Recorder:           mgr.GetEventRecorderFor("podsnapshot-controller"),
 	}
 	if err := podSnapshotReconciler.SetupWithManager(mgr); err != nil {
 		ctrl.Log.Error(err, "unable to set up PodSnapshot controller")
+		os.Exit(1)
+	}
+
+	snapshotJobReconciler := &controller.SnapshotJobReconciler{
+		Client:             mgr.GetClient(),
+		NonCacheReadClient: mgr.GetAPIReader(),
+		Recorder:           mgr.GetEventRecorderFor("snapshotjob-controller"),
+	}
+	if err := snapshotJobReconciler.SetupWithManager(mgr); err != nil {
+		ctrl.Log.Error(err, "unable to set up SnapshotJob controller")
 		os.Exit(1)
 	}
 
