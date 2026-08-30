@@ -4,15 +4,11 @@ Snapshot captures a fully initialized GPU workload and restores it later on the 
 
 ## Introduction
 
-### The Cold Start Problem
+A GPU inference workload takes minutes to become ready, and every new replica pays that cost again. When traffic spikes, the usual workaround is to keep idle replicas running, which means paying for GPUs that serve nothing.
 
-A GPU inference workload is slow to start and slow to scale up. Before it can serve a single request, it loads tens or hundreds of gigabytes of weights from storage into GPU memory, initializes the inference engine, CUDA and its runtime libraries, warms up execution kernels and compiles or optimizes computation graphs. For large models this takes minutes, and every new replica pays the full cost again.
+Snapshot captures one fully initialized workload and restores copies of it instead. Refer to [How it Works](../README.md#how-it-works) in the README to understand the mechanism. That first slow start can additionally be sped up with [Run:ai Model Streamer](https://github.com/run-ai/runai-model-streamer).
 
-When traffic spikes, a platform needs additional replicas immediately, but each one is minutes away from being useful. The usual workaround is to keep idle replicas running, which means paying for GPUs that serve nothing.
-
-### How Snapshot Addresses It
-
-Snapshot addresses this by starting one workload the slow way, which can be combined with [Run:ai Model Streamer](https://github.com/run-ai/runai-model-streamer) to speed up weight loading for that first replica, then freezing it once it is warm and thawing copies of that frozen state whenever a new replica is needed. The restored process resumes at the exact instruction where it stopped, with initialization already done. The question this document answers is a practical one: how long does that thaw actually take and what governs it.
+This document answers the practical question: how long does a restore actually take, and what governs it.
 
 ## Benchmarking Setup
 
