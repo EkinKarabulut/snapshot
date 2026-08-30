@@ -99,7 +99,7 @@ Clients interact exclusively through the Kubernetes API. No platform-specific AP
 
 <p align="center"><i><b>Figure 1.</b> Restoring a captured workload is 2.4 to 14.9 times faster than starting the same workload from scratch on the same hardware.</i></p>
 
-For the experiment setup, the per stage breakdown, and the full results, see [docs/benchmarks.md](docs/benchmarks.md).
+For the experiment setup, the per stage breakdown, and the full results, see [benchmarks](docs/benchmarks.md).
 
 &nbsp;
 

@@ -58,16 +58,17 @@ start totals ranged from 58.0 to 106.9 seconds.
 
 All timings are in seconds. Rows are ordered by weight size.
 
-| Model | Weights | agent setup | CRIU restore | CUDA restore | wake / remap | **end to end** | Cold start |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| Qwen3 0.6B | 1.5 GB | 0.075 | 2.359 | 0.894 | 0.165 | **3.506** | 52.4 |
-| Qwen3 8B | 16.4 GB | 0.080 | 4.733 | 2.795 | 0.450 | **8.071** | 58.3 |
-| Qwen3 14B | 29.5 GB | 0.076 | 6.834 | 5.145 | 0.722 | **12.790** | 61.7 |
-| GPT-OSS 120B | 65.3 GB | 0.072 | 15.465 | 14.054 | 1.530 | **31.135** | 85.3 |
-| Qwen3 32B | 65.5 GB | 0.078 | 9.854 | 8.059 | 1.376 | **19.379** | 79.3 |
-| Llama 3.3 70B FP8 | 72.7 GB | 0.069 | 11.033 | 9.809 | 1.516 | **22.439** | 102.1 |
-| Qwen2.5 72B | 145.4 GB | 0.084 | 20.039 | 17.898 | 2.832 | **40.867** | 97.8 |
+### Scale from zero compared with Snapshot
 
+| Model | Weights | Cold start | Snapshot |
+|---|---:|---:|---:|
+| Qwen3 0.6B | 1.5 GB | 52.4 | 3.506 |
+| Qwen3 8B | 16.4 GB | 58.3 | 8.071 |
+| Qwen3 14B | 29.5 GB | 61.7 | 12.790 |
+| GPT-OSS 120B | 65.3 GB | 85.3 | 31.135 |
+| Qwen3 32B | 65.5 GB | 79.3 | 19.379 |
+| Llama 3.3 70B FP8 | 72.7 GB | 102.1 | 22.439 |
+| Qwen2.5 72B | 145.4 GB | 97.8 | 40.867 |
 
 &nbsp;
 
@@ -79,7 +80,24 @@ All timings are in seconds. Rows are ordered by weight size.
   </picture>
 </div>
 
-<p align="center"><b>Figure 1: Scale from zero compared with Snapshot.</b> One pair per model configuration, ordered by weight size.</p>
+<p align="center"><i><b>Figure 1.</b> Scale from zero compared with Snapshot. One pair per model configuration, ordered by weight size.</i></p>
+
+&nbsp;
+
+### Where the restore time goes
+
+The four stages of a restore, and their sum. The Total column is the same figure as the Snapshot
+column above.
+
+| Model | agent setup | CRIU restore | CUDA restore | wake / remap | Total |
+|---|---:|---:|---:|---:|---:|
+| Qwen3 0.6B | 0.075 | 2.359 | 0.894 | 0.165 | 3.506 |
+| Qwen3 8B | 0.080 | 4.733 | 2.795 | 0.450 | 8.071 |
+| Qwen3 14B | 0.076 | 6.834 | 5.145 | 0.722 | 12.790 |
+| GPT-OSS 120B | 0.072 | 15.465 | 14.054 | 1.530 | 31.135 |
+| Qwen3 32B | 0.078 | 9.854 | 8.059 | 1.376 | 19.379 |
+| Llama 3.3 70B FP8 | 0.069 | 11.033 | 9.809 | 1.516 | 22.439 |
+| Qwen2.5 72B | 0.084 | 20.039 | 17.898 | 2.832 | 40.867 |
 
 &nbsp;
 
@@ -91,7 +109,7 @@ All timings are in seconds. Rows are ordered by weight size.
   </picture>
 </div>
 
-<p align="center"><b>Figure 2: Restore time by stage.</b> The same Snapshot totals, split into the stages that produce them. The number above each column is the end to end time in seconds.</p>
+<p align="center"><i><b>Figure 2.</b> Restore time by stage. The same Snapshot totals, split into the stages that produce them. The number above each column is the end to end time in seconds.</i></p>
 
 &nbsp;
 
