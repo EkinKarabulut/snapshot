@@ -6,13 +6,15 @@ Snapshot captures a fully initialized GPU workload and restores it later on the 
 
 A GPU inference workload takes minutes to become ready, and every new replica pays that cost again. When traffic spikes, the usual workaround is to keep idle replicas running, which means paying for GPUs that serve nothing.
 
-Snapshot captures one fully initialized workload and restores copies of it instead. Refer to [How it Works](../README.md#how-it-works) in the README to understand the mechanism. That first slow start can additionally be sped up with [Run:ai Model Streamer](https://github.com/run-ai/runai-model-streamer).
+Snapshot captures one fully initialized workload and restores copies of it instead. Refer to [How it Works](../README.md#how-it-works) section to understand the mechanism. That first slow start can additionally be sped up with [Run:ai Model Streamer](https://github.com/run-ai/runai-model-streamer).
 
 This document answers the practical question: how long does a restore actually take, and what governs it.
 
 ## Benchmarking Setup
 
 The runs used single GPU LLM serving workloads, with the KV cache discarded before capture so that it is not part of the artifact.
+
+<div align="center">
 
 | Property | Value |
 |---|---|
@@ -24,6 +26,8 @@ The runs used single GPU LLM serving workloads, with the KV cache discarded befo
 | NVIDIA driver | 595 |
 | Storage backend | VAST PVC |
 | Restore locality | Not pinned. Placement was left to the scheduler, so restores were neither forced onto the capture node nor forced away from it. |
+
+</div>
 
 The Weights column is the size of each model's safetensors files on the Hugging Face Hub at the checkpoint's native precision. Weight size is not the same thing as artifact size, since a snapshot artifact also contains the CUDA context, compiled kernels, and workspace buffers.
 
@@ -60,6 +64,8 @@ All timings are in seconds. Rows are ordered by weight size.
 
 ### Scale from zero compared with Snapshot
 
+<div align="center">
+
 | Model | Weights | Cold start | Snapshot |
 |---|---:|---:|---:|
 | Qwen3 0.6B | 1.5 GB | 52.4 | 3.506 |
@@ -69,6 +75,8 @@ All timings are in seconds. Rows are ordered by weight size.
 | Qwen3 32B | 65.5 GB | 79.3 | 19.379 |
 | Llama 3.3 70B FP8 | 72.7 GB | 102.1 | 22.439 |
 | Qwen2.5 72B | 145.4 GB | 97.8 | 40.867 |
+
+</div>
 
 &nbsp;
 
@@ -89,6 +97,8 @@ All timings are in seconds. Rows are ordered by weight size.
 The four stages of a restore, and their sum. The Total column is the same figure as the Snapshot
 column above.
 
+<div align="center">
+
 | Model | agent setup | CRIU restore | CUDA restore | wake / remap | Total |
 |---|---:|---:|---:|---:|---:|
 | Qwen3 0.6B | 0.075 | 2.359 | 0.894 | 0.165 | 3.506 |
@@ -98,6 +108,8 @@ column above.
 | Qwen3 32B | 0.078 | 9.854 | 8.059 | 1.376 | 19.379 |
 | Llama 3.3 70B FP8 | 0.069 | 11.033 | 9.809 | 1.516 | 22.439 |
 | Qwen2.5 72B | 0.084 | 20.039 | 17.898 | 2.832 | 40.867 |
+
+</div>
 
 &nbsp;
 
