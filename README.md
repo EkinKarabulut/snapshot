@@ -89,7 +89,17 @@ Clients interact exclusively through the Kubernetes API. No platform-specific AP
 
 ## Benchmarks
 
-Restore timings across a range of model sizes, broken down by stage, are documented in [docs/benchmarks.md](docs/benchmarks.md).
+<div align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/img/scale-vs-snapshot-plain-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="docs/img/scale-vs-snapshot-plain-light.svg">
+    <img width="900" alt="Paired column chart comparing scale from zero against Snapshot for each model. Scale from zero ranges from 52 to 102 seconds, Snapshot from 3.5 to 40.9 seconds." src="docs/img/scale-vs-snapshot-plain-light.svg">
+  </picture>
+</div>
+
+<p align="center">Restoring a captured worker is 2.4 to 14.9 times faster than starting the same workload from scratch on the same hardware.</p>
+
+For the experiment setup, the per stage breakdown, and the full results, see [docs/benchmarks.md](docs/benchmarks.md).
 
 &nbsp;
 
