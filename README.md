@@ -43,9 +43,9 @@ new replica comes online in seconds instead of minutes.
 
 <div align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/development/img/scale-vs-snapshot-plain-dark.svg">
-    <source media="(prefers-color-scheme: light)" srcset="docs/development/img/scale-vs-snapshot-plain-light.svg">
-    <img width="900" alt="Paired column chart comparing scale from zero against Snapshot for each model. Scale from zero ranges from 52 to 102 seconds, Snapshot from 3.5 to 40.9 seconds." src="docs/development/img/scale-vs-snapshot-plain-light.svg">
+    <source media="(prefers-color-scheme: dark)" srcset="docs/development/img/cold-start-vs-snapshot-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="docs/development/img/cold-start-vs-snapshot-light.svg">
+    <img width="900" alt="Paired column chart comparing cold start against Snapshot for each model. Cold start ranges from 52 to 102 seconds, Snapshot from 3.5 to 40.9 seconds." src="docs/development/img/cold-start-vs-snapshot-light.svg">
   </picture>
 </div>
 

@@ -47,9 +47,9 @@ A GPU workload restore includes four stages. We report each one separately, alon
 | **wake / remap** | The revived process still holds the network address and GPU identifier of the machine it was frozen on. This stage rewrites the pod IP through the inet-remap CRIU plugin, maps the saved GPU UUID onto the device present on this node, and signals the workload that it is awake. | The engine's resume hook: the KV cache pool is mapped back, weight buffers return to the device, and the workload announces itself so the router can send traffic to it. This is the last readiness step before a server accepts requests. |
 | **end to end** | The four stages above, plus around 10 milliseconds of sequencing between them. This is the figure a user experiences. | Engine initialization, weight load, and warm up combined. Add your container start time to get the full pod readiness figure. |
 
-### Cold Start Measurements (Scale from Zero)
+### Cold Start Measurements
 
-**Cold start** is the same workload starting from scratch on the same hardware and the same stack, measured in the scale from zero experiment.
+**Cold start** is the same workload starting from scratch on the same hardware and the same stack.
 
 That experiment measured container startup as its own stage, between 4.8 and 5.7 seconds depending
 on the model, and we have subtracted it from the Cold start column in the results below. The restore
@@ -62,7 +62,7 @@ start totals ranged from 58.0 to 106.9 seconds.
 
 All timings are in seconds. Rows are ordered by weight size.
 
-### Scale from zero compared with Snapshot
+### Cold start compared with Snapshot
 
 <div align="center">
 
@@ -82,13 +82,13 @@ All timings are in seconds. Rows are ordered by weight size.
 
 <div align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="img/scale-vs-snapshot-plain-dark.svg">
-    <source media="(prefers-color-scheme: light)" srcset="img/scale-vs-snapshot-plain-light.svg">
-    <img width="900" alt="Paired column chart comparing scale from zero against Snapshot for each model. Scale from zero ranges from 52 to 102 seconds, Snapshot from 3.5 to 40.9 seconds." src="img/scale-vs-snapshot-plain-light.svg">
+    <source media="(prefers-color-scheme: dark)" srcset="img/cold-start-vs-snapshot-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="img/cold-start-vs-snapshot-light.svg">
+    <img width="900" alt="Paired column chart comparing cold start against Snapshot for each model. Cold start ranges from 52 to 102 seconds, Snapshot from 3.5 to 40.9 seconds." src="img/cold-start-vs-snapshot-light.svg">
   </picture>
 </div>
 
-<p align="center"><i><b>Figure 1.</b> Scale from zero compared with Snapshot. One pair per model configuration, ordered by weight size.</i></p>
+<p align="center"><i><b>Figure 1.</b> Cold start compared with Snapshot. One pair per model configuration, ordered by weight size.</i></p>
 
 &nbsp;
 
